@@ -1,0 +1,1536 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>工程五大成本試算系統（多工程版）</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+  <!-- Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body { background: #f3f4f6; }
+    .no-print { display: block; }
+
+    @media print {
+      .no-print { display: none !important; }
+    }
+
+    .modal-bg {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 50;
+    }
+
+    .modal-box {
+      background: white;
+      padding: 20px;
+      width: 90%;
+      max-width: 900px;
+      border-radius: 12px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <!-- Google Sheet CSV 工具 -->
+  <script>
+    const fetchCSV = async (url) => {
+      const r = await fetch(url);
+      const t = await r.text();
+      return t.trim().split("\n").map(line =>
+        line.split(",").map(c => c.replace(/^"|"$/g, ""))
+      );
+    };
+  </script>
+
+  <!-- React 主程式 -->
+  <script type="text/babel">
+/* ============================================================
+    LocalStorage 基本工具
+============================================================ */
+const loadDB = (key, def) => {
+  const d = localStorage.getItem(key);
+  return d ? JSON.parse(d) : def;
+};
+
+const saveDB = (key, val) =>
+  localStorage.setItem(key, JSON.stringify(val));
+
+/* ============================================================
+    顯示時間格式化（顯示同步時間）
+============================================================ */
+const formatSyncTime = (msStr) => {
+  if (!msStr) return "尚未同步";
+  const t = Number(msStr);
+  if (!t) return "尚未同步";
+  const d = new Date(t);
+  const Y = d.getFullYear();
+  const M = String(d.getMonth() + 1).padStart(2, "0");
+  const D = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  return `${Y}-${M}-${D} ${h}:${m}`;
+};
+
+/* ============================================================
+    Google Sheet 快取設定
+============================================================ */
+const SHEET_CACHE_MAX_AGE = 1000 * 60 * 10; // 10 分鐘
+
+const isSheetCacheExpired = (key) => {
+  const ts = Number(localStorage.getItem(key) || 0);
+  if (!ts) return true;
+  return Date.now() - ts > SHEET_CACHE_MAX_AGE;
+};
+
+/* ============================================================
+    共用 Modal（彈窗）
+============================================================ */
+const Modal = ({ title, onClose, children }) => (
+  <div className="modal-bg">
+    <div className="modal-box relative">
+      <button
+        className="absolute right-3 top-3 text-xl font-bold"
+        onClick={onClose}
+      >
+        ✖
+      </button>
+      <h2 className="text-2xl font-bold mb-4">{title}</h2>
+      {children}
+    </div>
+  </div>
+);
+/* ============================================================
+   ★★★ 多工程核心資料結構（projects）
+   每個工程會有：
+   - name（工程名稱）
+   - allItems（五大成本明細）
+   - manualAdjust（五項手動調整金額）
+============================================================ */
+
+const DEFAULT_PROJECT = () => ({
+  name: "未命名工程",
+  allItems: [],
+  manualAdjust: {
+    material: 0,
+    purchase: 0,
+    fabricate: 0,
+    transport: 0,
+    install: 0,
+  },
+});
+
+// 取得所有工程（從 localStorage）
+const loadProjects = () => {
+  try {
+    const raw = JSON.parse(localStorage.getItem("PROJECT_LIST"));
+    if (raw && Array.isArray(raw) && raw.length > 0) return raw;
+  } catch {}
+  return [DEFAULT_PROJECT()];
+};
+
+// 儲存全部工程
+const saveProjects = (projects) => {
+  localStorage.setItem("PROJECT_LIST", JSON.stringify(projects));
+};
+/* ============================================================
+   🗂 工程切換 UI（上方按鈕列 ProjectSwitcher）
+   - 顯示所有工程按鈕
+   - 點按可切換工程
+   - 可新增工程
+============================================================ */
+
+const ProjectSwitcher = ({ projects, currentIndex, setCurrentIndex, addProject }) => {
+  return (
+    <div className="flex gap-2 mb-4 no-print">
+
+      {projects.map((p, idx) => (
+        <button
+          key={idx}
+          className={`px-3 py-1 rounded border text-sm ${
+            currentIndex === idx ? "bg-blue-600 text-white" : "bg-white"
+          }`}
+          onClick={() => setCurrentIndex(idx)}
+        >
+          {p.name || `工程 ${idx + 1}`}
+        </button>
+      ))}
+
+      {/* ➕ 新增工程 */}
+      <button
+        className="px-3 py-1 rounded border bg-green-600 text-white text-sm"
+        onClick={addProject}
+      >
+        ➕ 新工程
+      </button>
+
+    </div>
+  );
+};
+/* ============================================================
+   🏷 工程名稱 Header（可編輯）
+============================================================ */
+const ProjectHeader = ({ project, renameProject }) => {
+  return (
+    <div className="bg-white p-4 rounded-xl shadow mb-4">
+
+      <label className="font-bold mr-2">工程名稱：</label>
+
+      <input
+        className="border p-2 rounded w-64"
+        value={project.name}
+        onChange={(e) => renameProject(e.target.value)}
+        placeholder="輸入工程名稱..."
+      />
+    </div>
+  );
+};
+/* ============================================================
+   📌 主程式 App() —— 多工程 + 五大成本資料管理
+============================================================ */
+const App = () => {
+
+  /* ============================================================
+     ① 所有工程（多工程總資料）
+  ============================================================ */
+  const [projects, setProjects] = React.useState(loadProjects());
+
+  /* 目前工程的 index */
+  const [curIndex, setCurIndex] = React.useState(0);
+
+  /* 取得目前工程物件 */
+  const cur = projects[curIndex];
+
+  /* ============================================================
+     ② 工程切換
+  ============================================================ */
+  const switchProject = (idx) => {
+    setCurIndex(idx);
+  };
+
+  /* ============================================================
+     ③ 新增工程
+  ============================================================ */
+  const addProject = () => {
+    const name = `工程 ${projects.length + 1}`;
+
+    const next = [
+      ...projects,
+      {
+        name,
+        materialDB: [],
+        purchaseDB: [],
+        fabricateDB: [],
+        transportDB: [],
+        installDB: [],
+        allItems: [],
+        manualAdjust: {
+          material: 0,
+          purchase: 0,
+          fabricate: 0,
+          transport: 0,
+          install: 0,
+        },
+      },
+    ];
+
+    setProjects(next);
+    saveProjects(next);
+    setCurIndex(next.length - 1); // 直接切到新工程
+  };
+
+  /* ============================================================
+     ④ 刪除工程
+  ============================================================ */
+  const deleteProject = (idx) => {
+    if (!confirm("確定要刪除此工程嗎？")) return;
+
+    let next = projects.filter((_, i) => i !== idx);
+    if (next.length === 0) next = [DEFAULT_PROJECT()];
+
+    setProjects(next);
+    saveProjects(next);
+    setCurIndex(0);
+  };
+
+  /* ============================================================
+     ⑤ 更新工程名稱
+  ============================================================ */
+  const renameProject = (newName) => {
+    const next = [...projects];
+    next[curIndex].name = newName;
+    setProjects(next);
+    saveProjects(next);
+  };
+
+  /* ============================================================
+     ⑥ 更新單一工程內的五大資料庫 / 明細
+  ============================================================ */
+
+  // 存取方便用的小工具
+  const updateCurProject = (patch) => {
+    const next = [...projects];
+    next[curIndex] = { ...next[curIndex], ...patch };
+    setProjects(next);
+    saveProjects(next);
+  };
+
+  // 五大資料庫（更新時會寫回工程資料）
+  const setMaterialDB  = (v) => updateCurProject({ materialDB: v });
+  const setPurchaseDB  = (v) => updateCurProject({ purchaseDB: v });
+  const setFabricateDB = (v) => updateCurProject({ fabricateDB: v });
+  const setTransportDB = (v) => updateCurProject({ transportDB: v });
+  const setInstallDB   = (v) => updateCurProject({ installDB: v });
+
+  // 五大明細 allItems
+  const addItem = (item) =>
+    updateCurProject({ allItems: [...cur.allItems, item] });
+
+  const deleteItem = (id) =>
+    updateCurProject({
+      allItems: cur.allItems.filter((x) => x.id !== id),
+    });
+
+  const updateItem = (id, patch) =>
+    updateCurProject({
+      allItems: cur.allItems.map((x) =>
+        x.id === id ? { ...x, ...patch } : x
+      ),
+    });
+
+  const clearAllItems = () => {
+    if (!confirm("確定清除所有明細？")) return;
+    updateCurProject({ allItems: [] });
+  };
+
+  /* ============================================================
+     ⑦ 手動調整金額（五大成本）
+  ============================================================ */
+  const setManualAdjust = (patch) =>
+    updateCurProject({
+      manualAdjust: { ...cur.manualAdjust, ...patch },
+    });
+
+  /* ============================================================
+     ⑧ 畫面用 Tab
+  ============================================================ */
+  const tabs = ["材料", "市購品", "製作成本", "運輸費用", "現場安裝", "總表"];
+  const [tab, setTab] = React.useState("材料");
+
+  /* ============================================================
+     ⑨ 重新同步資料庫（Google Sheet）
+     這裡只是觸發事件，後面第 7 段會加入真正邏輯
+  ============================================================ */
+  const [sheetTick, setSheetTick] = React.useState(0);
+  const forceSyncAll = () => setSheetTick((v) => v + 1);
+
+  /* ============================================================
+     ⑩ 匯出 JSON（備份）
+  ============================================================ */
+  const handleExportJSON = () => {
+    const blob = new Blob(
+      [JSON.stringify(projects, null, 2)],
+      { type: "application/json" }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "五大成本_全部工程備份.json";
+    a.click();
+  };
+
+
+/* ============================================================
+   📦 1️⃣ 材料試算 MaterialCalc（含修改／刪除）
+============================================================ */
+const MaterialCalc = ({ db, addItem, items, deleteItem, updateItem }) => {
+  const [category, setCategory] = React.useState("");
+  const [spec, setSpec] = React.useState("");
+  const [qty, setQty] = React.useState("");
+
+  const categories = [...new Set(db.map((x) => x.category))];
+  const specs = db.filter((x) => x.category === category);
+
+  const selected = specs.find((x) => x.spec === spec);
+  const subtotal = selected ? selected.price * Number(qty || 0) : 0;
+
+  const add = () => {
+    if (!selected || !qty) return alert("請填寫完整資料");
+
+    addItem({
+      id: Date.now(),
+      type: "材料",
+      category,
+      spec,
+      qty: Number(qty),
+      unit: selected.unit,
+      unitPrice: selected.price,
+      subtotal,
+    });
+
+    setSpec("");
+    setQty("");
+  };
+
+  const matItems = items.filter((x) => x.type === "材料");
+
+  return (
+    <div className="bg-white p-4 rounded-xl shadow mb-4">
+
+      <h2 className="text-xl font-bold mb-3">🧱 材料試算</h2>
+
+      {/* 選分類 */}
+      <div className="mb-3">
+        <label>分類：</label>
+        <select
+          className="border p-2 rounded ml-2"
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value);
+            setSpec("");
+          }}
+        >
+          <option value="">請選擇</option>
+          {categories.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 規格 */}
+      {category && (
+        <div className="mb-3">
+          <label>規格：</label>
+          <select
+            className="border p-2 rounded ml-2"
+            value={spec}
+            onChange={(e) => setSpec(e.target.value)}
+          >
+            <option value="">請選擇</option>
+            {specs.map((s) => (
+              <option key={s.spec}>{s.spec}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 數量 */}
+      {spec && (
+        <div className="mb-3">
+          <label>數量：</label>
+          <input
+            className="border p-2 rounded ml-2 w-24"
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+        </div>
+      )}
+
+      {/* 小計 */}
+      <div className="text-xl font-bold text-right mt-3">
+        小計：<span className="text-blue-600">{subtotal.toFixed(0)}</span> 元
+      </div>
+
+      {subtotal > 0 && (
+        <button
+          className="mt-4 bg-emerald-600 text-white px-4 py-2 rounded"
+          onClick={add}
+        >
+          ➕ 加入總表
+        </button>
+      )}
+
+      {/* 明細 */}
+      {matItems.length > 0 && (
+        <div className="mt-6">
+          <h3 className="font-bold text-lg mb-2">📋 材料明細</h3>
+
+          <table className="w-full text-sm border">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2">分類</th>
+                <th className="p-2">規格</th>
+                <th className="p-2">數量</th>
+                <th className="p-2">單位</th>
+                <th className="p-2">單價</th>
+                <th className="p-2">小計</th>
+                <th className="p-2">操作</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {matItems.map((it) => (
+                <tr key={it.id} className="border-t">
+                  <td className="p-2">{it.category}</td>
+                  <td className="p-2">{it.spec}</td>
+
+                  {/* 數量可改 */}
+                  <td className="p-2">
+                    <input
+                      className="border p-1 w-20"
+                      value={it.qty}
+                      onChange={(e) =>
+                        updateItem(it.id, {
+                          qty: Number(e.target.value),
+                          subtotal: Number(e.target.value) * it.unitPrice,
+                        })
+                      }
+                    />
+                  </td>
+
+                  <td className="p-2">{it.unit}</td>
+                  <td className="p-2">{it.unitPrice}</td>
+                  <td className="p-2">{it.subtotal}</td>
+
+                  <td className="p-2">
+                    <button
+                      className="text-red-600"
+                      onClick={() => deleteItem(it.id)}
+                    >
+                      刪除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+/* ============================================================
+   🛒 2️⃣ 市購品試算 PurchaseCalc
+============================================================ */
+const PurchaseCalc = ({ db, addItem, items, deleteItem, updateItem }) => {
+  const [category, setCategory] = React.useState("");
+  const [spec, setSpec] = React.useState("");
+  const [qty, setQty] = React.useState("");
+
+  const categories = [...new Set(db.map((x) => x.category))];
+  const specs = db.filter((x) => x.category === category);
+
+  const selected = specs.find((x) => x.spec === spec);
+  const subtotal = selected ? selected.price * Number(qty || 0) : 0;
+
+  const add = () => {
+    if (!selected || !qty) return alert("請輸入完整資料");
+
+    addItem({
+      id: Date.now(),
+      type: "市購品",
+      category,
+      spec,
+      qty: Number(qty),
+      unit: selected.unit,
+      unitPrice: selected.price,
+      subtotal,
+    });
+
+    setSpec("");
+    setQty("");
+  };
+
+  const purItems = items.filter((x) => x.type === "市購品");
+
+  return (
+    <div className="bg-white p-4 rounded-xl shadow mb-4">
+
+      <h2 className="text-xl font-bold mb-3">🛒 市購品試算</h2>
+
+      {/* 分類 */}
+      <div className="mb-3">
+        <label>分類：</label>
+        <select
+          className="border p-2 rounded ml-2"
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value);
+            setSpec("");
+          }}
+        >
+          <option value="">請選擇</option>
+          {categories.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 規格 */}
+      {category && (
+        <div className="mb-3">
+          <label>規格：</label>
+          <select
+            className="border p-2 rounded ml-2"
+            value={spec}
+            onChange={(e) => setSpec(e.target.value)}
+          >
+            <option value="">請選擇</option>
+            {specs.map((s) => (
+              <option key={s.spec}>{s.spec}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 數量 */}
+      {spec && (
+        <div className="mb-3">
+          <label>數量：</label>
+          <input
+            className="border p-2 rounded ml-2 w-24"
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+        </div>
+      )}
+
+      {/* 小計 */}
+      <div className="text-xl font-bold text-right mt-3">
+        小計：<span className="text-blue-600">{subtotal.toFixed(0)}</span> 元
+      </div>
+
+      {subtotal > 0 && (
+        <button
+          className="mt-4 bg-emerald-600 text-white px-4 py-2 rounded"
+          onClick={add}
+        >
+          ➕ 加入總表
+        </button>
+      )}
+
+      {/* 明細 */}
+      {purItems.length > 0 && (
+        <div className="mt-6">
+          <h3 className="font-bold text-lg mb-2">📋 市購品明細</h3>
+
+          <table className="w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2">分類</th>
+                <th className="p-2">規格</th>
+                <th className="p-2">數量</th>
+                <th className="p-2">單位</th>
+                <th className="p-2">單價</th>
+                <th className="p-2">小計</th>
+                <th className="p-2">操作</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {purItems.map((it) => (
+                <tr key={it.id} className="border-t">
+                  <td className="p-2">{it.category}</td>
+                  <td className="p-2">{it.spec}</td>
+
+                  <td className="p-2">
+                    <input
+                      className="border p-1 w-20"
+                      value={it.qty}
+                      onChange={(e) =>
+                        updateItem(it.id, {
+                          qty: Number(e.target.value),
+                          subtotal: Number(e.target.value) * it.unitPrice,
+                        })
+                      }
+                    />
+                  </td>
+
+                  <td className="p-2">{it.unit}</td>
+                  <td className="p-2">{it.unitPrice}</td>
+                  <td className="p-2">{it.subtotal}</td>
+
+                  <td className="p-2">
+                    <button
+                      className="text-red-600"
+                      onClick={() => deleteItem(it.id)}
+                    >
+                      刪除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+/* ============================================================
+   🔧 3️⃣ 製作成本試算
+============================================================ */
+const FabricationCalc = ({ db, addItem, items, deleteItem, updateItem }) => {
+  const [category, setCategory] = React.useState("");
+  const [mode, setMode] = React.useState("");
+  const [spec, setSpec] = React.useState("");
+  const [qty, setQty] = React.useState("");
+
+  const categories = [...new Set(db.map((x) => x.category))];
+  const modes = db.filter((x) => x.category === category);
+  const specs = db.filter((x) => x.category === category && x.mode === mode);
+
+  const selected = specs.find((x) => x.spec === spec);
+  const subtotal = selected ? selected.price * Number(qty || 0) : 0;
+
+  const add = () => {
+    if (!selected || !qty) return alert("請填完整資料");
+
+    addItem({
+      id: Date.now(),
+      type: "製作成本",
+      category,
+      mode,
+      spec,
+      qty: Number(qty),
+      unit: selected.unit || "式",
+      unitPrice: selected.price,
+      subtotal,
+    });
+
+    setMode("");
+    setSpec("");
+    setQty("");
+  };
+
+  const fabItems = items.filter((x) => x.type === "製作成本");
+
+  return (
+    <div className="bg-white p-4 rounded-xl shadow mb-4">
+
+      <h2 className="text-xl font-bold mb-3">🔧 製作成本試算</h2>
+
+      {/* 選分類 */}
+      <div className="mb-3">
+        <label>分類：</label>
+        <select
+          className="border p-2 rounded ml-2"
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value);
+            setMode("");
+            setSpec("");
+          }}
+        >
+          <option value="">請選擇</option>
+          {categories.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 方式 */}
+      {category && (
+        <div className="mb-3">
+          <label>方式：</label>
+          <select
+            className="border p-2 rounded ml-2"
+            value={mode}
+            onChange={(e) => {
+              setMode(e.target.value);
+              setSpec("");
+            }}
+          >
+            <option value="">請選擇</option>
+            {modes.map((m) => (
+              <option key={m.mode}>{m.mode}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 規格 */}
+      {mode && (
+        <div className="mb-3">
+          <label>規格：</label>
+          <select
+            className="border p-2 rounded ml-2"
+            value={spec}
+            onChange={(e) => setSpec(e.target.value)}
+          >
+            <option value="">請選擇</option>
+            {specs.map((s) => (
+              <option key={s.spec}>{s.spec}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 數量 */}
+      {spec && (
+        <div className="mb-3">
+          <label>數量：</label>
+          <input
+            className="border p-2 rounded ml-2 w-24"
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+        </div>
+      )}
+
+      <div className="text-xl font-bold text-right mt-3">
+        小計：<span className="text-blue-600">{subtotal}</span> 元
+      </div>
+
+      {subtotal > 0 && (
+        <button
+          className="mt-4 bg-emerald-600 text-white px-4 py-2 rounded"
+          onClick={add}
+        >
+          ➕ 加入總表
+        </button>
+      )}
+
+      {/* 明細 */}
+      {fabItems.length > 0 && (
+        <div className="mt-6">
+          <h3 className="font-bold text-lg mb-2">📋 製作成本明細</h3>
+
+          <table className="w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2">分類</th>
+                <th className="p-2">方式</th>
+                <th className="p-2">規格</th>
+                <th className="p-2">數量</th>
+                <th className="p-2">單價</th>
+                <th className="p-2">小計</th>
+                <th className="p-2">操作</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {fabItems.map((it) => (
+                <tr key={it.id} className="border-t">
+                  <td className="p-2">{it.category}</td>
+                  <td className="p-2">{it.mode}</td>
+                  <td className="p-2">{it.spec}</td>
+
+                  <td className="p-2">
+                    <input
+                      className="border w-20 p-1"
+                      value={it.qty}
+                      onChange={(e) =>
+                        updateItem(it.id, {
+                          qty: Number(e.target.value),
+                          subtotal: Number(e.target.value) * it.unitPrice,
+                        })
+                      }
+                    />
+                  </td>
+
+                  <td className="p-2">{it.unitPrice}</td>
+                  <td className="p-2">{it.subtotal}</td>
+
+                  <td className="p-2">
+                    <button
+                      className="text-red-600"
+                      onClick={() => deleteItem(it.id)}
+                    >
+                      刪除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+/* ============================================================
+   🚚 4️⃣ 運輸費用試算 TransportCalc
+============================================================ */
+const TransportCalc = ({ db, addItem, items, deleteItem, updateItem }) => {
+  const [category, setCategory] = React.useState("");
+  const [spec, setSpec] = React.useState("");
+  const [region, setRegion] = React.useState("");
+  const [trips, setTrips] = React.useState("");
+
+  const categories = [...new Set(db.map((x) => x.category))];
+  const specs = db.filter((x) => x.category === category);
+  const regions = db.filter((x) => x.category === category && x.spec === spec);
+
+  const selected = regions.find((x) => x.region === region);
+  const subtotal = selected ? selected.price * Number(trips || 0) : 0;
+
+  const add = () => {
+    if (!selected || !trips) return alert("請填完整資料");
+
+    addItem({
+      id: Date.now(),
+      type: "運輸費用",
+      category,
+      spec,
+      region,
+      trips: Number(trips),
+      unitPrice: selected.price,
+      subtotal,
+    });
+
+    setTrips("");
+  };
+
+  const transItems = items.filter((x) => x.type === "運輸費用");
+
+  return (
+    <div className="bg-white p-4 rounded-xl shadow mb-4">
+
+      <h2 className="text-xl font-bold mb-3">🚚 運輸費用試算</h2>
+
+      {/* 分類 */}
+      <div className="mb-3">
+        <label>分類：</label>
+        <select
+          className="border p-2 rounded ml-2"
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value);
+            setSpec("");
+            setRegion("");
+          }}
+        >
+          <option value="">請選擇</option>
+          {categories.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 規格 */}
+      {category && (
+        <div className="mb-3">
+          <label>規格：</label>
+          <select
+            className="border p-2 rounded ml-2"
+            value={spec}
+            onChange={(e) => {
+              setSpec(e.target.value);
+              setRegion("");
+            }}
+          >
+            <option value="">請選擇</option>
+            {specs.map((s) => (
+              <option key={s.spec}>{s.spec}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 區域 */}
+      {spec && (
+        <div className="mb-3">
+          <label>區域：</label>
+          <select
+            className="border p-2 rounded ml-2"
+            value={region}
+            onChange={(e) => setRegion(e.target.value)}
+          >
+            <option value="">請選擇</option>
+            {regions.map((r) => (
+              <option key={r.region}>{r.region}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 車次 */}
+      {region && (
+        <div className="mb-3">
+          <label>車次：</label>
+          <input
+            className="border p-2 rounded ml-2 w-24"
+            value={trips}
+            onChange={(e) => setTrips(e.target.value)}
+          />
+        </div>
+      )}
+
+      <div className="text-xl font-bold text-right mt-3">
+        小計：<span className="text-blue-600">{subtotal}</span> 元
+      </div>
+
+      {subtotal > 0 && (
+        <button
+          className="mt-4 bg-emerald-600 text-white px-4 py-2 rounded"
+          onClick={add}
+        >
+          ➕ 加入總表
+        </button>
+      )}
+
+      {/* 明細 */}
+      {transItems.length > 0 && (
+        <div className="mt-6">
+          <h3 className="font-bold text-lg mb-2">📋 運輸費用明細</h3>
+
+          <table className="w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2">分類</th>
+                <th className="p-2">規格</th>
+                <th className="p-2">區域</th>
+                <th className="p-2">車次</th>
+                <th className="p-2">單價</th>
+                <th className="p-2">小計</th>
+                <th className="p-2">操作</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {transItems.map((it) => (
+                <tr key={it.id} className="border-t">
+                  <td className="p-2">{it.category}</td>
+                  <td className="p-2">{it.spec}</td>
+                  <td className="p-2">{it.region}</td>
+
+                  <td className="p-2">
+                    <input
+                      className="border w-20 p-1 text-right"
+                      value={it.trips}
+                      onChange={(e) =>
+                        updateItem(it.id, {
+                          trips: Number(e.target.value),
+                          subtotal: Number(e.target.value) * it.unitPrice,
+                        })
+                      }
+                    />
+                  </td>
+
+                  <td className="p-2">{it.unitPrice}</td>
+                  <td className="p-2">{it.subtotal}</td>
+
+                  <td className="p-2">
+                    <button
+                      className="text-red-600"
+                      onClick={() => deleteItem(it.id)}
+                    >
+                      刪除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+/* ============================================================
+   🛠 5️⃣ 現場安裝費用 InstallCalc
+============================================================ */
+const InstallCalc = ({ db, addItem, items, deleteItem, updateItem }) => {
+  const [category, setCategory] = React.useState("");
+  const [mode, setMode] = React.useState("");
+  const [spec, setSpec] = React.useState("");
+  const [qty, setQty] = React.useState("");
+
+  const categories = [...new Set(db.map((x) => x.category))];
+  const modes = db.filter((x) => x.category === category);
+  const specs = db.filter((x) => x.category === category && x.mode === mode);
+
+  const selected = specs.find((x) => x.spec === spec);
+  const subtotal = selected ? selected.price * Number(qty || 0) : 0;
+
+  const add = () => {
+    if (!selected || !qty) return alert("請輸入完整資料");
+
+    addItem({
+      id: Date.now(),
+      type: "現場安裝",
+      category,
+      mode,
+      spec,
+      qty: Number(qty),
+      unit: selected.unit || "項",
+      unitPrice: selected.price,
+      subtotal,
+    });
+
+    setQty("");
+  };
+
+  const insItems = items.filter((x) => x.type === "現場安裝");
+
+  return (
+    <div className="bg-white p-4 rounded-xl shadow mb-4">
+
+      <h2 className="text-xl font-bold mb-3">🛠 現場安裝費用試算</h2>
+
+      {/* 分類 */}
+      <div className="mb-3">
+        <label>分類：</label>
+        <select
+          className="border p-2 ml-2 rounded"
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value);
+            setMode("");
+            setSpec("");
+          }}
+        >
+          <option value="">請選擇</option>
+          {categories.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 方式 */}
+      {category && (
+        <div className="mb-3">
+          <label>方式：</label>
+          <select
+            className="border p-2 ml-2 rounded"
+            value={mode}
+            onChange={(e) => {
+              setMode(e.target.value);
+              setSpec("");
+            }}
+          >
+            <option value="">請選擇</option>
+            {modes.map((m) => (
+              <option key={m.mode}>{m.mode}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 規格 */}
+      {mode && (
+        <div className="mb-3">
+          <label>規格：</label>
+          <select
+            className="border p-2 ml-2 rounded"
+            value={spec}
+            onChange={(e) => setSpec(e.target.value)}
+          >
+            <option value="">請選擇</option>
+            {specs.map((s) => (
+              <option key={s.spec}>{s.spec}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 數量 */}
+      {spec && (
+        <div className="mb-3">
+          <label>數量：</label>
+          <input
+            className="border p-2 ml-2 rounded w-24"
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+        </div>
+      )}
+
+      {/* 小計 */}
+      <div className="text-xl font-bold text-right mt-3">
+        小計：<span className="text-blue-600">{subtotal}</span> 元
+      </div>
+
+      {subtotal > 0 && (
+        <button
+          className="mt-4 bg-emerald-600 text-white px-4 py-2 rounded"
+          onClick={add}
+        >
+          ➕ 加入總表
+        </button>
+      )}
+
+      {/* 明細 */}
+      {insItems.length > 0 && (
+        <div className="mt-6">
+          <h3 className="font-bold text-lg mb-2">📋 現場安裝明細</h3>
+
+          <table className="w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2">分類</th>
+                <th className="p-2">方式</th>
+                <th className="p-2">規格</th>
+                <th className="p-2">數量</th>
+                <th className="p-2">單價</th>
+                <th className="p-2">小計</th>
+                <th className="p-2">操作</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {insItems.map((it) => (
+                <tr key={it.id} className="border-t">
+                  <td className="p-2">{it.category}</td>
+                  <td className="p-2">{it.mode}</td>
+                  <td className="p-2">{it.spec}</td>
+
+                  <td className="p-2">
+                    <input
+                      className="border p-1 w-20 text-right"
+                      value={it.qty}
+                      onChange={(e) =>
+                        updateItem(it.id, {
+                          qty: Number(e.target.value),
+                          subtotal: Number(e.target.value) * it.unitPrice,
+                        })
+                      }
+                    />
+                  </td>
+
+                  <td className="p-2">{it.unitPrice}</td>
+                  <td className="p-2">{it.subtotal}</td>
+
+                  <td className="p-2">
+                    <button
+                      className="text-red-600"
+                      onClick={() => deleteItem(it.id)}
+                    >
+                      刪除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+/* ============================================================
+   📊 總表 SummaryPage（圓餅圖＋人工調整＋五大成本加總）
+============================================================ */
+const SummaryPage = ({ allItems, project, manualAdjust, setManualAdjust }) => {
+
+  // 五大成本分類
+  const groups = {
+    材料: allItems.filter((x) => x.type === "材料"),
+    市購品: allItems.filter((x) => x.type === "市購品"),
+    製作成本: allItems.filter((x) => x.type === "製作成本"),
+    運輸費用: allItems.filter((x) => x.type === "運輸費用"),
+    現場安裝: allItems.filter((x) => x.type === "現場安裝"),
+  };
+
+  // 小計（包含人工調整）
+  const sum = (arr, adj = 0) =>
+    arr.reduce((s, x) => s + Number(x.subtotal || 0), 0) + Number(adj || 0);
+
+  const total = 
+    sum(groups.材料, manualAdjust.material) +
+    sum(groups.市購品, manualAdjust.purchase) +
+    sum(groups.製作成本, manualAdjust.fabricate) +
+    sum(groups.運輸費用, manualAdjust.transport) +
+    sum(groups.現場安裝, manualAdjust.install);
+
+  // 圓餅圖資料
+  React.useEffect(() => {
+    const ctx = document.getElementById("chart-pie");
+
+    if (!ctx) return;
+
+    new Chart(ctx, {
+      type: "pie",
+      data: {
+        labels: ["材料", "市購品", "製作", "運輸", "安裝"],
+        datasets: [
+          {
+            data: [
+              sum(groups.材料, manualAdjust.material),
+              sum(groups.市購品, manualAdjust.purchase),
+              sum(groups.製作成本, manualAdjust.fabricate),
+              sum(groups.運輸費用, manualAdjust.transport),
+              sum(groups.現場安裝, manualAdjust.install),
+            ],
+            backgroundColor: [
+              "#60A5FA",
+              "#34D399",
+              "#FBBF24",
+              "#F87171",
+              "#A78BFA",
+            ],
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          datalabels: {
+            color: "#fff",
+            formatter: (v) => (v > 0 ? v.toLocaleString() : ""),
+          },
+        },
+      },
+      plugins: [ChartDataLabels],
+    });
+  }, [allItems, manualAdjust]);
+
+  /* -----------------------------
+        Render 區
+  ----------------------------- */
+  return (
+    <div className="bg-white p-4 rounded-xl shadow">
+
+      <h2 className="text-2xl font-bold mb-4">
+        📊 成本總表（{project || "未命名工程"}）
+      </h2>
+
+      {/* 圓餅圖 */}
+      <div className="flex justify-center mb-6">
+        <canvas id="chart-pie"></canvas>
+      </div>
+
+      {/* 五大成本明細 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* 各類成本區塊 */}
+        {[
+          ["材料", groups.材料, "material"],
+          ["市購品", groups.市購品, "purchase"],
+          ["製作成本", groups.製作成本, "fabricate"],
+          ["運輸費用", groups.運輸費用, "transport"],
+          ["現場安裝", groups.現場安裝, "install"],
+        ].map(([label, arr, key]) => (
+          <div key={label} className="border p-3 rounded-lg">
+            <h3 className="font-bold text-lg mb-2">{label}</h3>
+
+            <p className="text-gray-600 mb-1">
+              小計：{arr.reduce((s, x) => s + Number(x.subtotal || 0), 0).toLocaleString()} 元
+            </p>
+
+            {/* 人工調整欄位 */}
+            <div className="flex items-center gap-2 mb-1">
+              <label className="text-sm text-gray-700">人工調整：</label>
+              <input
+                className="border p-1 w-24 text-right rounded"
+                value={manualAdjust[key]}
+                onChange={(e) =>
+                  setManualAdjust((prev) => ({
+                    ...prev,
+                    [key]: Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+
+            <p className="font-bold">
+              合計：{sum(arr, manualAdjust[key]).toLocaleString()} 元
+            </p>
+          </div>
+        ))}
+
+      </div>
+
+      {/* 總計 */}
+      <div className="text-right text-2xl font-bold mt-6">
+        🧮 總金額：{total.toLocaleString()} 元
+      </div>
+    </div>
+  );
+};
+/* ============================================================
+   🖥️ App() 主畫面（Tab 切換 + 五大成本頁面 + 總表）
+============================================================ */
+const App = () => {
+  const [project, setProject] = React.useState("");     // 當前工程名稱
+  const [projectList, setProjectList] = React.useState(loadProjectList()); // 工程清單
+  const [allItems, setAllItems] = React.useState([]);   // 當前工程的全部明細
+
+  // 五大成本的手動調整（總表使用）
+  const [manualAdjust, setManualAdjust] = React.useState({
+    material: 0,
+    purchase: 0,
+    fabricate: 0,
+    transport: 0,
+    install: 0,
+  });
+
+  /* ---------------------------------------------
+     Tab 切換
+  --------------------------------------------- */
+  const tabs = ["材料", "市購品", "製作成本", "運輸費用", "現場安裝", "總表"];
+  const [tab, setTab] = React.useState("材料");
+
+  /* ---------------------------------------------
+     工程切換：讀取該工程的明細
+  --------------------------------------------- */
+  React.useEffect(() => {
+    if (!project) return;
+
+    const key = `items_${project}`;
+    const saved = localStorage.getItem(key);
+
+    if (saved) {
+      setAllItems(JSON.parse(saved));
+    } else {
+      setAllItems([]);
+    }
+  }, [project]);
+
+  /* ---------------------------------------------
+     只要 allItems 變 → 寫回該工程
+  --------------------------------------------- */
+  React.useEffect(() => {
+    if (!project) return;
+    localStorage.setItem(`items_${project}`, JSON.stringify(allItems));
+  }, [allItems, project]);
+
+  /* CRUD：新增、刪除、更新 */
+  const addItem = (item) => {
+    setAllItems((prev) => [...prev, item]);
+  };
+
+  const deleteItem = (id) => {
+    setAllItems((prev) => prev.filter((x) => x.id !== id));
+  };
+
+  const updateItem = (id, newData) => {
+    setAllItems((prev) =>
+      prev.map((x) => (x.id === id ? { ...x, ...newData } : x))
+    );
+  };
+
+  const clearAllItems = () => {
+    if (!confirm("確定要清除該工程的所有明細？")) return;
+    setAllItems([]);
+  };
+
+  /* ---------------------------------------------
+     畫面 Render
+  --------------------------------------------- */
+  return (
+    <div className="max-w-6xl mx-auto">
+
+      {/* ◆◆ 工程切換區 ◆◆ */}
+      <ProjectSelector
+        project={project}
+        setProject={setProject}
+        projectList={projectList}
+        setProjectList={setProjectList}
+      />
+
+      {/* ◆◆ 工程名稱輸入欄 ◆◆ */}
+      <div className="bg-white p-4 rounded-xl shadow mb-4">
+        <label className="font-bold mr-2">工程名稱：</label>
+        <input
+          className="border p-2 rounded w-64"
+          placeholder="輸入工程名稱..."
+          value={project}
+          onChange={(e) => setProject(e.target.value)}
+        />
+      </div>
+
+      {/* ◆◆ 上方分類選單 ◆◆ */}
+      <div className="flex gap-2 mb-4 no-print">
+        {tabs.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 rounded border ${
+              tab === t ? "bg-blue-600 text-white" : "bg-white"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+
+        {/* 清除明細 */}
+        <button
+          className="ml-auto px-3 py-2 border rounded border-red-500 text-red-600 bg-white"
+          onClick={clearAllItems}
+        >
+          🗑 清除明細
+        </button>
+      </div>
+
+      {/* ◆◆ 各頁面內容 ◆◆ */}
+      {tab === "材料" && (
+        <MaterialCalc
+          allItems={allItems}
+          addItem={addItem}
+          deleteItem={deleteItem}
+          updateItem={updateItem}
+        />
+      )}
+
+      {tab === "市購品" && (
+        <PurchaseCalc
+          allItems={allItems}
+          addItem={addItem}
+          deleteItem={deleteItem}
+          updateItem={updateItem}
+        />
+      )}
+
+      {tab === "製作成本" && (
+        <FabricationCalc
+          allItems={allItems}
+          addItem={addItem}
+          deleteItem={deleteItem}
+          updateItem={updateItem}
+        />
+      )}
+
+      {tab === "運輸費用" && (
+        <TransportCalc
+          allItems={allItems}
+          addItem={addItem}
+          deleteItem={deleteItem}
+          updateItem={updateItem}
+        />
+      )}
+
+      {tab === "現場安裝" && (
+        <InstallCalc
+          allItems={allItems}
+          addItem={addItem}
+          deleteItem={deleteItem}
+          updateItem={updateItem}
+        />
+      )}
+
+      {tab === "總表" && (
+        <SummaryPage
+          allItems={allItems}
+          project={project}
+          manualAdjust={manualAdjust}
+          setManualAdjust={setManualAdjust}
+        />
+      )}
+    </div>
+  );
+};
+/* ============================================================
+   🚀 React 啟動（渲染 App）
+============================================================ */
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+
