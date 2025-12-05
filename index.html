@@ -1,712 +1,275 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>工程五大成本試算系統（Mode C 多工程版）</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工程五大成本試算系統（多工程 Mode-C）</title>
 
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- React 18 + ReactDOM + Babel (JSX 編譯) -->
+  <!-- React 18 + Babel -->
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Chart.js + DataLabels -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
-
-  <!-- SheetJS：匯出 Excel 用 -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 
   <style>
-    body {
-      background: #f3f4f6;
-      font-family: "Microsoft JhengHei", sans-serif;
+    body { background:#f1f3f5; }
+    .card {
+      background:white;
+      border-radius:12px;
+      padding:20px;
+      box-shadow:0 2px 4px rgba(0,0,0,0.08);
+      margin-bottom:24px;
+    }
+    .tab-btn {
+      padding:10px 20px;
+      border-radius:8px;
+      cursor:pointer;
+      font-weight:600;
     }
     .tab-active {
-      border-bottom: 3px solid #2563eb;
-      color: #2563eb;
-      font-weight: bold;
+      background:#2563eb;
+      color:white;
     }
-    .no-print { display: block; }
-    @media print {
-      .no-print { display: none !important; }
+    .tab-inactive {
+      background:#e2e8f0;
+      color:#475569;
     }
   </style>
 </head>
 
-<body>
+<body class="p-6">
+
 <div id="root"></div>
 
+<script type="text/babel">
 
-<!-- ==========================================================
-       📌 第 1 段：全域工具函式層（無任何 React UI）
-=========================================================== -->
-<script type="module">
-
-/* ---------------------------------------------------------
-   📌 工具：下載 Google Sheet CSV
---------------------------------------------------------- */
-export async function fetchCSV(url) {
-  const res = await fetch(url);
-  const text = await res.text();
-  return text.trim().split("\n").map(line =>
-    line.split(",").map(c => c.replace(/^"|"$/g, ""))
-  );
-}
-
-/* ---------------------------------------------------------
-   📌 localStorage Load / Save
---------------------------------------------------------- */
-export function loadDB(key, def) {
-  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(def)); }
-  catch { return def; }
-}
-export function saveDB(key, data) {
-  localStorage.setItem(key, JSON.stringify(data));
-}
-
-/* ---------------------------------------------------------
-   📌 Sheet 資料版本碼（偵測是否有更新）
---------------------------------------------------------- */
-export function calcSheetVersion(rows) {
-  if (!rows || rows.length < 2) return "EMPTY";
-  return rows.length + "|" + rows[0].join("|") + "|" + rows.at(-1).join("|");
-}
-
-/* ---------------------------------------------------------
-   📌 Mode C：通用同步器（5 大資料庫共用）
---------------------------------------------------------- */
-export async function syncDB({ type, url, mapping, setDB, setSheetVersion }) {
-  const VERSION_KEY = `${type}DB_version`;
-  const rows = await fetchCSV(url);
-  if (!rows || rows.length <= 1) return;
-
-  const newVersion = calcSheetVersion(rows);
-  const oldVersion = localStorage.getItem(VERSION_KEY);
-  const localData = loadDB(`${type}DB`, []);
-
-  // 版本相同 → 不更新
-  if (newVersion === oldVersion && localData.length > 0) {
-    const now = Date.now().toString();
-    setSheetVersion(v => ({ ...v, [type]: now }));
-    return;
-  }
-
-  // 版本不同 → 重新解析
-  const list = rows.slice(1).map((r, idx) => {
-    const obj = { id: Date.now() + idx };
-    mapping.forEach((key, i) => {
-      obj[key] = r[i] || "";
-      if (["price","qty","weight"].includes(key)) obj[key] = Number(obj[key]) || 0;
-    });
-    return obj;
-  });
-
-  setDB(list);
-  localStorage.setItem(VERSION_KEY, newVersion);
-
-  const now = Date.now().toString();
-  setSheetVersion(v => ({ ...v, [type]: now }));
-}
-
-
-/* ---------------------------------------------------------
-   📌 多工程 Load / Save
---------------------------------------------------------- */
-export function loadProjects() {
-  return loadDB("allProjects", {});
-}
-export function saveProjects(data) {
-  saveDB("allProjects", data);
-}
-
-
-/* ---------------------------------------------------------
-   📌 整數四捨五入工具（禁止小數）
---------------------------------------------------------- */
-export function roundInt(v) {
-  if (!v) return 0;
-  return Math.round(Number(v));
-}
-
-
-/* ---------------------------------------------------------
-   📌 下拉式選單：依照資料庫產生 options
---------------------------------------------------------- */
-export function extractOptions(db, fields) {
-  // fields = ["category", "spec"] 等
-  return db.map(item => {
-    const label = fields.map(f => item[f]).join(" / ");
-    return { label, item };
-  });
-}
-
-
-/* ---------------------------------------------------------
-   📌 匯出 Excel（六大 Sheet）
---------------------------------------------------------- */
-export function exportExcel({ projectName, material, purchase, fabricate, transport, install, summary }) {
-
-  const wb = XLSX.utils.book_new();
-
-  function addSheet(sheetName, rows) {
-    const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  }
-
-  addSheet("材料成本", material);
-  addSheet("市購品", purchase);
-  addSheet("製作", fabricate);
-  addSheet("運輸", transport);
-  addSheet("安裝", install);
-  addSheet("總表", summary);
-
-  XLSX.writeFile(wb, `${projectName}-成本明細.xlsx`);
-}
-
-</script>
-<!-- ==========================================================
-       📌 第 2 段：五大成本 React Components
-=========================================================== -->
-<script type="text/babel" data-type="module">
-
+/* ------------------------------------------------------
+   React Hooks
+-------------------------------------------------------*/
 const { useState, useEffect, useMemo } = React;
 
-/* ---------------------------------------------------------
-   📌 Google Sheet 資料來源
---------------------------------------------------------- */
-const GOOGLE_SHEETS = {
-  material:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=0&single=true&output=csv",
-
-  purchase:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1300343145&single=true&output=csv",
-
-  fabricate:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1755952578&single=true&output=csv",
-
-  transport:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=11669107&single=true&output=csv",
-
-  install:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=183776968&single=true&output=csv",
+/* ------------------------------------------------------
+   五大成本 — 下拉選項資料（在此可自行新增項目）
+-------------------------------------------------------*/
+const MATERIAL_OPTIONS = {
+  "鐵板": [
+    { spec:"鐵板-4t", price:22, weight: 12 },
+    { spec:"鐵板-9t", price:25, weight: 70 },
+  ],
+  "角鐵": [
+    { spec:"L50x50x5", price:32, weight: 6 },
+    { spec:"L90x90x7", price:28, weight: 19 },
+  ],
+  "不等邊角鐵": [
+    { spec:"L150x90x9", price:30, weight: 32 },
+  ]
 };
 
+const PURCHASE_OPTIONS = {
+  "電動設備": [
+    { spec:"1TX25m（含上下線控）", unit:"台", price:50000 },
+  ],
+  "馬達": [
+    { spec:"2HP", unit:"台", price:5000 },
+  ]
+};
 
-/* ---------------------------------------------------------
-   📌 分頁 Tabs（置頂固定）
---------------------------------------------------------- */
-function TopTabs({ active, setActive }) {
-  const tabs = [
-    { key: "mat", label: "材料" },
-    { key: "pur", label: "市購品" },
-    { key: "fab", label: "製作" },
-    { key: "tra", label: "運輸" },
-    { key: "ins", label: "安裝" },
-    { key: "sum", label: "總表" },
-  ];
+const FABRICATE_OPTIONS = {
+  "廠內製作": [
+    { spec:"工數", price:5000 },
+  ],
+  "委外製作": [
+    { spec:"工數", price:3500 },
+    { spec:"公斤計價", price:25 },
+  ]
+};
 
-  return (
-    <div className="no-print sticky top-0 bg-white shadow z-50">
-      <div className="flex border-b">
-        {tabs.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setActive(t.key)}
-            className={
-              "flex-1 py-3 text-center hover:bg-gray-100 " +
-              (active === t.key ? "tab-active" : "")
-            }
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+const TRANSPORT_OPTIONS = {
+  "吊車": [
+    { spec:"吊車-10T", price:9000 },
+    { spec:"吊車-12T", price:12000 },
+    { spec:"吊車-25T", price:25000 },
+  ],
+  "高空作業車": [
+    { spec:"高空作業車", price:5000 },
+  ]
+};
+
+const INSTALL_OPTIONS = {
+  "現場安裝": [
+    { spec:"現場安裝", price:7000 },
+  ],
+  "委外安裝": [
+    { spec:"委外安裝", price:8000 },
+  ]
+};
+
+/* ------------------------------------------------------
+   共用：建立項目資料格式
+-------------------------------------------------------*/
+function createItem(type, category, spec, qty, price, weight = 0) {
+  return {
+    id: Date.now() + Math.random(),
+    type,       // material / purchase / fabricate / transport / install
+    category,
+    spec,
+    qty: Number(qty),
+    price: Number(price),
+    weight: Number(weight),
+    subtotal: Number(qty) * Number(price),
+  };
 }
 
+/* ------------------------------------------------------
+   LocalStorage 方法
+-------------------------------------------------------*/
+function loadData() {
+  try {
+    return JSON.parse(localStorage.getItem("costData") || "{}");
+  } catch {
+    return {};
+  }
+}
 
-/* ---------------------------------------------------------
-   📌 MaterialCalc（材料成本）
---------------------------------------------------------- */
-function MaterialCalc({ db, items, addItem, deleteItem, updateItem }) {
-  const [category, setCategory] = useState("");
-  const [spec, setSpec] = useState("");
-  const [L, setL] = useState("");
-  const [W, setW] = useState("");
-  const [pcs, setPcs] = useState("");
-  const [len2, setLen2] = useState("");
-  const [qty, setQty] = useState("");
+function saveData(data) {
+  localStorage.setItem("costData", JSON.stringify(data));
+}
 
-  const categories = useMemo(
-    () => [...new Set(db.map(x => x.category))],
-    [db]
-  );
+/* ------------------------------------------------------
+   整體 App（第二段會開始渲染 UI）
+-------------------------------------------------------*/
+/* ------------------------------------------------------
+   App 主介面
+-------------------------------------------------------*/
+function App() {
 
-  const specs = useMemo(
-    () => db.filter(x => x.category === category).map(x => x.spec),
-    [db, category]
-  );
+  /* --------------------------------------------------
+     六大分頁
+  ---------------------------------------------------*/
+  const pages = ["材料成本", "市購品", "製作成本", "運輸費用", "現場安裝", "總表"];
+  const [page, setPage] = useState("材料成本");
 
-  const selected = useMemo(
-    () => db.find(x => x.category === category && x.spec === spec),
-    [db, category, spec]
-  );
+  /* --------------------------------------------------
+     主資料結構（存於 localStorage）
+  ---------------------------------------------------*/
+  const [data, setData] = useState(() => loadData());
 
-  const isPlate =
-    selected &&
-    (selected.unit?.includes("m²") ||
-      category.includes("板") ||
-      spec.includes("板"));
+  // 若該類別沒有資料 → 自動建立空陣列
+  useEffect(() => {
+    const init = {};
+    pages.forEach(p => {
+      if (!data[p]) init[p] = [];
+      else init[p] = data[p];
+    });
+    setData(init);
+    saveData(init);
+  }, []);
 
-  const density = selected?.weight || 0;
+  /* --------------------------------------------------
+     手動調整（每頁 + / -）
+  ---------------------------------------------------*/
+  const [adjust, setAdjust] = useState({
+    "材料成本": 0,
+    "市購品": 0,
+    "製作成本": 0,
+    "運輸費用": 0,
+    "現場安裝": 0,
+  });
 
-  const weight = useMemo(() => {
-    if (!selected) return 0;
-    const L_val = Number(isPlate ? L : len2) || 0;
-    const W_val = Number(isPlate ? W : 1) || 0;
-    const pcs_qty = Number(isPlate ? pcs : qty) || 0;
-    return L_val * W_val * pcs_qty * density;
-  }, [selected, isPlate, L, W, pcs, len2, qty, density]);
+  /* --------------------------------------------------
+     利管率 / 毛利率
+  ---------------------------------------------------*/
+  const [rates, setRates] = useState({
+    manage: 15, // 利管率
+    profit: 35, // 建議毛利率
+  });
 
-  const subtotal = weight * (selected?.price || 0);
+  /* --------------------------------------------------
+     新增資料
+  ---------------------------------------------------*/
+  const addItem = (category, selected, qty, typeName) => {
+    if (!selected || !qty || qty <= 0) {
+      alert("請選擇規格並輸入正確數量");
+      return;
+    }
 
-  const add = () => {
-    if (!selected) return alert("請選擇材料");
-    if (subtotal <= 0) return alert("請輸入正確尺寸 / 數量");
-
-    addItem({
-      id: Date.now(),
-      type: "材料",
+    const item = createItem(
+      typeName,
       category,
-      spec,
-      length: isPlate ? L : len2,
-      width: isPlate ? W : "",
-      qty: isPlate ? pcs : qty,
-      unit: selected.unit,
-      weight,
-      unitPrice: selected.price,
-      subtotal,
-    });
+      selected.spec,
+      qty,
+      selected.price,
+      selected.weight ?? 0
+    );
 
-    setL(""); setW(""); setPcs(""); setLen2(""); setQty(""); setSpec("");
+    const newData = {
+      ...data,
+      [typeName]: [...data[typeName], item],
+    };
+
+    setData(newData);
+    saveData(newData);
   };
 
-  const list = items.filter(x => x.type === "材料");
-  const totalCost = list.reduce((s, x) => s + x.subtotal, 0);
-
-  return (
-    <div className="p-4">
-
-      <div className="bg-white p-4 rounded-xl shadow mb-4">
-        <h2 className="text-xl font-bold mb-3">🧱 材料成本試算</h2>
-
-        {/* 選擇分類 */}
-        <div className="mb-3 flex gap-3">
-          <div>
-            <label>分類</label>
-            <select
-              className="border p-2 rounded ml-2"
-              value={category}
-              onChange={e => { setCategory(e.target.value); setSpec(""); }}
-            >
-              <option value="">請選擇</option>
-              {categories.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </div>
-
-          {/* 規格 */}
-          {category && (
-            <div>
-              <label>規格</label>
-              <select
-                className="border p-2 rounded ml-2"
-                value={spec}
-                onChange={e => setSpec(e.target.value)}
-              >
-                <option value="">請選擇</option>
-                {specs.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-          )}
-        </div>
-
-        {/* 板材 or 型鋼輸入欄位 */}
-        {selected && (
-          <div className="grid grid-cols-4 gap-4 mb-4">
-
-            <div>
-              <label>長度 m</label>
-              <input
-                className="border p-2 rounded w-full"
-                value={isPlate ? L : len2}
-                type="number"
-                onChange={e => isPlate ? setL(e.target.value) : setLen2(e.target.value)}
-              />
-            </div>
-
-            {isPlate && (
-              <div>
-                <label>寬度 m</label>
-                <input
-                  className="border p-2 rounded w-full"
-                  value={W}
-                  type="number"
-                  onChange={e => setW(e.target.value)}
-                />
-              </div>
-            )}
-
-            <div>
-              <label>數量</label>
-              <input
-                className="border p-2 rounded w-full"
-                value={isPlate ? pcs : qty}
-                type="number"
-                onChange={e => isPlate ? setPcs(e.target.value) : setQty(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label>單價</label>
-              <input
-                className="border p-2 rounded w-full bg-gray-100"
-                disabled
-                value={selected.price}
-              />
-            </div>
-
-          </div>
-        )}
-
-        {/* 小計 */}
-        {selected && (
-          <div className="text-gray-700 mb-3">
-            <p>重量：{weight.toFixed(2)} kg</p>
-            <p>小計：{subtotal.toLocaleString()} 元</p>
-          </div>
-        )}
-
-        {/* 加入按鈕 */}
-        <button
-          onClick={add}
-          className="px-4 py-2 bg-emerald-600 text-white rounded"
-        >
-          ➕ 加入材料項目
-        </button>
-      </div>
-
-      {/* 列表 */}
-      <ItemList
-        title="材料成本列表"
-        items={list}
-        deleteItem={deleteItem}
-        updateItem={updateItem}
-      />
-
-      {/* 總和 */}
-      <SummaryLine label="材料成本合計" value={totalCost} color="blue" />
-    </div>
-  );
-}
-
-
-/* ---------------------------------------------------------
-   📌 PurchaseCalc（市購品，下拉式選單）
---------------------------------------------------------- */
-function PurchaseCalc({ db, items, addItem, deleteItem, updateItem }) {
-  const options = extractOptions(db, ["category", "spec"]);
-
-  const [selected, setSelected] = useState(null);
-  const [qty, setQty] = useState("");
-
-  const add = () => {
-    if (!selected) return alert("請選擇品項");
-    if (!qty || qty <= 0) return alert("請輸入數量");
-
-    addItem({
-      id: Date.now(),
-      type: "市購品",
-      name: selected.item.category,
-      spec: selected.item.spec,
-      qty: roundInt(qty),
-      unitPrice: selected.item.price,
-      subtotal: roundInt(qty) * selected.item.price,
-    });
-
-    setQty("");
+  /* --------------------------------------------------
+     刪除
+  ---------------------------------------------------*/
+  const removeItem = (typeName, id) => {
+    const newData = {
+      ...data,
+      [typeName]: data[typeName].filter(x => x.id !== id),
+    };
+    setData(newData);
+    saveData(newData);
   };
 
-  const list = items.filter(x => x.type === "市購品");
-  const total = list.reduce((s, x) => s + x.subtotal, 0);
-
-  return (
-    <div className="p-4">
-
-      <div className="bg-white p-4 rounded-xl shadow mb-4">
-        <h2 className="text-xl font-bold mb-3">🛒 市購品</h2>
-
-        {/* 下拉 */}
-        <select
-          className="border p-2 rounded w-80 mb-3"
-          onChange={e => {
-            const obj = options.find(o => o.label === e.target.value);
-            setSelected(obj || null);
-          }}
-        >
-          <option value="">請選擇品項</option>
-          {options.map(o => (
-            <option key={o.item.id}>{o.label}</option>
-          ))}
-        </select>
-
-        {selected && (
-          <div className="mb-3">
-            <p>單價：{selected.item.price} 元</p>
-            <input
-              className="border p-2 rounded w-40 mt-2"
-              type="number"
-              placeholder="輸入數量"
-              value={qty}
-              onChange={e => setQty(e.target.value)}
-            />
-          </div>
-        )}
-
-        <button
-          onClick={add}
-          className="px-4 py-2 bg-emerald-600 text-white rounded"
-        >
-          ➕ 加入市購品
-        </button>
-      </div>
-
-      <ItemList
-        title="市購品列表"
-        items={list}
-        deleteItem={deleteItem}
-        updateItem={updateItem}
-      />
-
-      <SummaryLine label="市購品成本合計" value={total} color="green" />
-    </div>
-  );
-}
-
-
-/* ---------------------------------------------------------
-   📌 FabricateCalc（製作）
---------------------------------------------------------- */
-function FabricateCalc({ db, items, addItem, deleteItem, updateItem }) {
-  const options = extractOptions(db, ["category", "spec"]);
-  const [selected, setSelected] = useState(null);
-
-  const add = () => {
-    if (!selected) return alert("請選擇項目");
-
-    addItem({
-      id: Date.now(),
-      type: "製作",
-      name: selected.item.category,
-      spec: selected.item.spec,
-      qty: 1,
-      unitPrice: selected.item.price,
-      subtotal: selected.item.price,
-    });
+  /* --------------------------------------------------
+     編輯（數量 / 單價）
+  ---------------------------------------------------*/
+  const editItem = (typeName, id, qty, price) => {
+    const newData = {
+      ...data,
+      [typeName]: data[typeName].map(x =>
+        x.id === id
+          ? { ...x, qty:Number(qty), price:Number(price), subtotal:Number(qty)*Number(price) }
+          : x
+      ),
+    };
+    setData(newData);
+    saveData(newData);
   };
 
-  const list = items.filter(x => x.type === "製作");
-  const total = list.reduce((s, x) => s + x.subtotal, 0);
+  /* --------------------------------------------------
+     計算各成本小計
+  ---------------------------------------------------*/
+  const subtotal = typeName =>
+    data[typeName].reduce((s, x) => s + x.subtotal, 0) + Number(adjust[typeName] || 0);
 
-  return (
-    <div className="p-4">
+  const totalCost =
+    subtotal("材料成本") +
+    subtotal("市購品") +
+    subtotal("製作成本") +
+    subtotal("運輸費用") +
+    subtotal("現場安裝");
 
-      <div className="bg-white p-4 rounded-xl shadow mb-4">
-        <h2 className="text-xl font-bold mb-3">🔧 製作成本</h2>
+  const finalManageCost = Math.round(totalCost * (1 + rates.manage / 100));
+  const finalSuggest = Math.round(finalManageCost * (1 + rates.profit / 100));
 
-        <select
-          className="border p-2 rounded w-80 mb-3"
-          onChange={e => {
-            const obj = options.find(o => o.label === e.target.value);
-            setSelected(obj || null);
-          }}
-        >
-          <option value="">請選擇製作項目</option>
-          {options.map(o => <option key={o.item.id}>{o.label}</option>)}
-        </select>
-
-        <button
-          onClick={add}
-          className="px-4 py-2 bg-emerald-600 text-white rounded"
-        >
-          ➕ 加入製作項目
-        </button>
-      </div>
-
-      <ItemList title="製作列表" items={list} deleteItem={deleteItem} updateItem={updateItem} />
-
-      <SummaryLine label="製作成本合計" value={total} color="yellow" />
-    </div>
-  );
-}
-
-
-/* ---------------------------------------------------------
-   📌 TransportCalc（運輸）
---------------------------------------------------------- */
-function TransportCalc({ db, items, addItem, deleteItem, updateItem }) {
-  const options = extractOptions(db, ["category", "spec"]);
-  const [selected, setSelected] = useState(null);
-
-  const add = () => {
-    if (!selected) return alert("請選擇項目");
-
-    addItem({
-      id: Date.now(),
-      type: "運輸",
-      name: selected.item.category,
-      spec: selected.item.spec,
-      qty: 1,
-      unitPrice: selected.item.price,
-      subtotal: selected.item.price,
-    });
-  };
-
-  const list = items.filter(x => x.type === "運輸");
-  const total = list.reduce((s, x) => s + x.subtotal, 0);
-
-  return (
-    <div className="p-4">
-
-      <div className="bg-white p-4 rounded-xl shadow mb-4">
-        <h2 className="text-xl font-bold mb-3">🚚 運輸費用</h2>
-
-        <select
-          className="border p-2 rounded w-80 mb-3"
-          onChange={e => {
-            const obj = options.find(o => o.label === e.target.value);
-            setSelected(obj || null);
-          }}
-        >
-          <option value="">請選擇運輸方式</option>
-          {options.map(o => <option key={o.item.id}>{o.label}</option>)}
-        </select>
-
-        <button
-          onClick={add}
-          className="px-4 py-2 bg-emerald-600 text-white rounded"
-        >
-          ➕ 加入運輸費用
-        </button>
-      </div>
-
-      <ItemList title="運輸列表" items={list} deleteItem={deleteItem} updateItem={updateItem} />
-
-      <SummaryLine label="運輸費用合計" value={total} color="red" />
-    </div>
-  );
-}
-
-
-/* ---------------------------------------------------------
-   📌 InstallCalc（安裝）
---------------------------------------------------------- */
-function InstallCalc({ db, items, addItem, deleteItem, updateItem }) {
-  const options = extractOptions(db, ["category", "spec"]);
-  const [selected, setSelected] = useState(null);
-
-  const add = () => {
-    if (!selected) return alert("請選擇項目");
-
-    addItem({
-      id: Date.now(),
-      type: "安裝",
-      name: selected.item.category,
-      spec: selected.item.spec,
-      qty: 1,
-      unitPrice: selected.item.price,
-      subtotal: selected.item.price,
-    });
-  };
-
-  const list = items.filter(x => x.type === "安裝");
-  const total = list.reduce((s, x) => s + x.subtotal, 0);
-
-  return (
-    <div className="p-4">
-
-      <div className="bg-white p-4 rounded-xl shadow mb-4">
-        <h2 className="text-xl font-bold mb-3">🛠 現場安裝</h2>
-
-        <select
-          className="border p-2 rounded w-80 mb-3"
-          onChange={e => {
-            const obj = options.find(o => o.label === e.target.value);
-            setSelected(obj || null);
-          }}
-        >
-          <option value="">請選擇安裝方式</option>
-          {options.map(o => <option key={o.item.id}>{o.label}</option>)}
-        </select>
-
-        <button
-          onClick={add}
-          className="px-4 py-2 bg-emerald-600 text-white rounded"
-        >
-          ➕ 加入安裝項目
-        </button>
-      </div>
-
-      <ItemList title="安裝列表" items={list} deleteItem={deleteItem} updateItem={updateItem} />
-
-      <SummaryLine label="安裝成本合計" value={total} color="purple" />
-    </div>
-  );
-}
-
-
-/* ---------------------------------------------------------
-   📌 ItemList（共用元件）– 含編輯 / 刪除功能
---------------------------------------------------------- */
-function ItemList({ title, items, deleteItem, updateItem }) {
-
-  const [editId, setEditId] = useState(null);
-  const [editQty, setEditQty] = useState("");
-  const [editUnit, setEditUnit] = useState("");
-
-  const startEdit = item => {
-    setEditId(item.id);
-    setEditQty(item.qty);
-    setEditUnit(item.unitPrice);
-  };
-
-  const saveEdit = item => {
-    if (!editQty || editQty <= 0) return alert("數量必須為正整數");
-    if (!editUnit || editUnit < 0) return alert("單價錯誤");
-
-    updateItem(item.id, {
-      qty: roundInt(editQty),
-      unitPrice: roundInt(editUnit),
-      subtotal: roundInt(editQty) * roundInt(editUnit),
-    });
-
-    setEditId(null);
-  };
-
-  if (items.length === 0) return null;
-
-  return (
-    <div className="bg-white p-4 rounded-xl shadow mb-4">
-      <h3 className="text-lg font-bold mb-3">{title}</h3>
-
-      <table className="w-full text-sm border-collapse">
+  /* --------------------------------------------------
+     共用：渲染明細表格
+  ---------------------------------------------------*/
+  function renderTable(typeName) {
+    return (
+      <table className="w-full text-sm mt-4 border">
         <thead className="bg-gray-100">
           <tr>
-            <th className="p-2 border">名稱</th>
+            <th className="p-2 border">分類</th>
             <th className="p-2 border">規格</th>
             <th className="p-2 border">數量</th>
             <th className="p-2 border">單價</th>
@@ -716,595 +279,349 @@ function ItemList({ title, items, deleteItem, updateItem }) {
         </thead>
 
         <tbody>
-          {items.map(item => (
-            <tr key={item.id} className="hover:bg-gray-50">
+          {data[typeName].map(row => (
+            <tr key={row.id}>
+              <td className="p-2 border">{row.category}</td>
+              <td className="p-2 border">{row.spec}</td>
 
-              <td className="p-2 border">{item.name || item.category}</td>
-              <td className="p-2 border">{item.spec || "—"}</td>
+              <td className="p-2 border">
+                <input
+                  type="number"
+                  className="border p-1 w-20"
+                  defaultValue={row.qty}
+                  onBlur={e => editItem(typeName, row.id, e.target.value, row.price)}
+                />
+              </td>
 
-              {/* 編輯模式 */}
-              {editId === item.id ? (
-                <>
-                  <td className="p-2 border">
-                    <input
-                      className="border p-1 w-20"
-                      type="number"
-                      value={editQty}
-                      onChange={e => setEditQty(e.target.value)}
-                    />
-                  </td>
+              <td className="p-2 border">
+                <input
+                  type="number"
+                  className="border p-1 w-20"
+                  defaultValue={row.price}
+                  onBlur={e => editItem(typeName, row.id, row.qty, e.target.value)}
+                />
+              </td>
 
-                  <td className="p-2 border">
-                    <input
-                      className="border p-1 w-20"
-                      type="number"
-                      value={editUnit}
-                      onChange={e => setEditUnit(e.target.value)}
-                    />
-                  </td>
+              <td className="p-2 border">{row.subtotal.toLocaleString()}</td>
 
-                  <td className="p-2 border">
-                    {(roundInt(editQty) * roundInt(editUnit)).toLocaleString()}
-                  </td>
-
-                  <td className="p-2 border space-x-2">
-                    <button
-                      className="px-2 py-1 bg-blue-600 text-white rounded"
-                      onClick={() => saveEdit(item)}
-                    >
-                      儲存
-                    </button>
-                    <button
-                      className="px-2 py-1 bg-gray-400 text-white rounded"
-                      onClick={() => setEditId(null)}
-                    >
-                      取消
-                    </button>
-                  </td>
-                </>
-              ) : (
-                <>
-                  <td className="p-2 border">{item.qty}</td>
-                  <td className="p-2 border">{item.unitPrice}</td>
-                  <td className="p-2 border">{item.subtotal.toLocaleString()}</td>
-
-                  <td className="p-2 border space-x-2">
-                    <button
-                      className="px-2 py-1 bg-yellow-500 text-white rounded"
-                      onClick={() => startEdit(item)}
-                    >
-                      編輯
-                    </button>
-                    <button
-                      className="px-2 py-1 bg-red-600 text-white rounded"
-                      onClick={() => deleteItem(item.id)}
-                    >
-                      刪除
-                    </button>
-                  </td>
-                </>
-              )}
-
+              <td className="p-2 border text-center">
+                <button
+                  className="px-3 py-1 bg-red-600 text-white rounded"
+                  onClick={() => removeItem(typeName, row.id)}
+                >刪除</button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
-  );
-}
+    );
+  }
 
+  /* --------------------------------------------------
+     每一類成本的 UI（下拉 + 數量 + 新增）
+  ---------------------------------------------------*/
+  function renderCostPage(options, typeName) {
+    const [category, setCategory] = useState("");
+    const [spec, setSpec] = useState("");
+    const [qty, setQty] = useState("");
 
-/* ---------------------------------------------------------
-   📌 SummaryLine – 單行摘要
---------------------------------------------------------- */
-function SummaryLine({ label, value, color }) {
-  const colorMap = {
-    blue: "text-blue-600",
-    green: "text-green-600",
-    yellow: "text-yellow-600",
-    red: "text-red-600",
-    purple: "text-purple-600",
-  };
+    const selected =
+      category && spec
+        ? options[category].find(x => x.spec === spec)
+        : null;
 
-  return (
-    <div className="text-right text-lg font-bold mb-6">
-      {label}：
-      <span className={colorMap[color]}>
-        {value.toLocaleString()} 元
-      </span>
-    </div>
-  );
-}
+    return (
+      <div className="card">
 
+        {/* 分類 */}
+        <div className="mb-3">
+          <label className="font-bold">分類：</label>
+          <select
+            className="border p-2 rounded ml-2"
+            value={category}
+            onChange={e => {
+              setCategory(e.target.value);
+              setSpec("");
+            }}
+          >
+            <option value="">請選擇</option>
+            {Object.keys(options).map(k => (
+              <option key={k}>{k}</option>
+            ))}
+          </select>
+        </div>
 
-/* ---------------------------------------------------------
-   📌 SummaryPage（總表 + 圓餅圖 + 色卡 + 利管 + 毛利率）
---------------------------------------------------------- */
-function SummaryPage({ items, projectName, manual, setManual, profitRate, setProfitRate, marginRate, setMarginRate }) {
+        {/* 規格 */}
+        {category && (
+          <div className="mb-3">
+            <label className="font-bold">規格：</label>
+            <select
+              className="border p-2 rounded ml-2"
+              value={spec}
+              onChange={e => setSpec(e.target.value)}
+            >
+              <option value="">請選擇</option>
+              {options[category].map(o => (
+                <option key={o.spec}>{o.spec}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
-  const sum = type =>
-    items.filter(x => x.type === type).reduce((s, x) => s + x.subtotal, 0);
+        {/* 數量 */}
+        {spec && (
+          <div className="mb-4">
+            <label className="font-bold">數量：</label>
+            <input
+              type="number"
+              min="1"
+              className="border p-2 rounded ml-2 w-32"
+              value={qty}
+              onChange={e => setQty(e.target.value)}
+            />
+          </div>
+        )}
 
-  const material = sum("材料");
-  const purchase = sum("市購品");
-  const fabricate = sum("製作");
-  const transport = sum("運輸");
-  const install = sum("安裝");
+        <button
+          className="px-4 py-2 bg-emerald-600 text-white rounded"
+          onClick={() => addItem(category, selected, qty, typeName)}
+        >
+          ➕ 新增項目
+        </button>
 
-  const subtotal = material + purchase + fabricate + transport + install;
+        {/* 手動調整 */}
+        <div className="mt-6">
+          <label className="font-bold">手動調整（±）：</label>
+          <input
+            type="number"
+            className="border p-2 rounded ml-2 w-32"
+            value={adjust[typeName]}
+            onChange={e =>
+              setAdjust({ ...adjust, [typeName]: Math.round(Number(e.target.value)) })
+            }
+          />
+        </div>
 
-  const afterManual = subtotal + (Number(manual) || 0);
+        {/* 明細表格 */}
+        {renderTable(typeName)}
 
-  const profitValue = Math.round(afterManual * (Number(profitRate) / 100));
-  const marginValue = Math.round(afterManual * (Number(marginRate) / 100));
+        {/* 小計 */}
+        <div className="text-right mt-4 font-bold text-lg text-blue-600">
+          小計：{subtotal(typeName).toLocaleString()} 元
+        </div>
 
-  const finalPrice = afterManual + profitValue;
+      </div>
+    );
+  }
 
-  /* 圓餅圖百分比 */
-  useEffect(() => {
-    const ctx = document.getElementById("chart-pie");
-    if (!ctx) return;
+  /* --------------------------------------------------
+     渲染總表頁
+  ---------------------------------------------------*/
+  function renderSummary() {
 
-    if (window.myPie) window.myPie.destroy();
+    const material = subtotal("材料成本");
+    const purchase = subtotal("市購品");
+    const fabricate = subtotal("製作成本");
+    const transport = subtotal("運輸費用");
+    const install = subtotal("現場安裝");
 
-    const dataArr = [material, purchase, fabricate, transport, install];
-    const total = dataArr.reduce((s, x) => s + x, 0);
+    const pieData = [material, purchase, fabricate, transport, install];
 
-    window.myPie = new Chart(ctx, {
-      type: "pie",
-      data: {
-        labels: ["材料", "市購品", "製作", "運輸", "安裝"],
-        datasets: [{
-          data: dataArr,
-          backgroundColor: ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6"]
-        }]
-      },
-      plugins: [ChartDataLabels],
-      options: {
-        plugins: {
-          datalabels: {
-            color: "#fff",
-            formatter: v => total ? ((v / total * 100).toFixed(1) + "%") : "",
-            font: { weight: "bold" }
+    useEffect(() => {
+      const ctx = document.getElementById("pieChart");
+      if (!ctx) return;
+
+      if (window.myPieChart) window.myPieChart.destroy();
+
+      window.myPieChart = new Chart(ctx, {
+        type: "pie",
+        data: {
+          labels: ["材料", "市購品", "製作", "運輸", "安裝"],
+          datasets: [{
+            data: pieData,
+            backgroundColor: [
+              "#3b82f6",
+              "#10b981",
+              "#f59e0b",
+              "#ef4444",
+              "#8b5cf6",
+            ]
+          }]
+        },
+        plugins:[ChartDataLabels],
+        options:{
+          plugins:{
+            datalabels:{
+              color:"#fff",
+              formatter:(v,ctx)=>{
+                const total = ctx.chart.data.datasets[0].data.reduce((a,b)=>a+b,0);
+                return ((v/total)*100).toFixed(1) + "%";
+              }
+            }
           }
         }
-      }
-    });
-  }, [items]);
+      });
 
-  return (
-    <div className="p-4">
-      <div className="bg-white p-4 rounded-xl shadow mb-4">
+    }, [material, purchase, fabricate, transport, install]);
 
-        <h2 className="text-2xl font-bold mb-4">📘 工程總表：{projectName}</h2>
 
-        <table className="w-full text-sm border mb-6">
+    return (
+      <div className="card">
+
+        <h2 className="text-2xl font-bold mb-4">📘 成本總表</h2>
+
+        <table className="w-full border text-sm mb-6">
           <thead className="bg-gray-100">
             <tr>
               <th className="p-2 border">項目</th>
-              <th className="p-2 border">金額</th>
+              <th className="p-2 border">金額（含調整）</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td className="p-2 border">材料</td><td className="p-2 border">{material.toLocaleString()}</td></tr>
+            <tr><td className="p-2 border">材料成本</td><td className="p-2 border">{material.toLocaleString()}</td></tr>
             <tr><td className="p-2 border">市購品</td><td className="p-2 border">{purchase.toLocaleString()}</td></tr>
-            <tr><td className="p-2 border">製作</td><td className="p-2 border">{fabricate.toLocaleString()}</td></tr>
-            <tr><td className="p-2 border">運輸</td><td className="p-2 border">{transport.toLocaleString()}</td></tr>
-            <tr><td className="p-2 border">安裝</td><td className="p-2 border">{install.toLocaleString()}</td></tr>
+            <tr><td className="p-2 border">製作成本</td><td className="p-2 border">{fabricate.toLocaleString()}</td></tr>
+            <tr><td className="p-2 border">運輸費用</td><td className="p-2 border">{transport.toLocaleString()}</td></tr>
+            <tr><td className="p-2 border">現場安裝</td><td className="p-2 border">{install.toLocaleString()}</td></tr>
 
-            <tr className="bg-gray-50 font-bold">
-              <td className="p-2 border">手動調整</td>
-              <td className="p-2 border">
-                <input
-                  className="border p-1 w-32 text-right"
-                  type="number"
-                  value={manual}
-                  onChange={e => setManual(e.target.value)}
-                />
-              </td>
-            </tr>
-
-            <tr className="bg-gray-100 font-bold">
-              <td className="p-2 border">利管比（%）</td>
-              <td className="p-2 border">
-                <input
-                  className="border p-1 w-24 text-right"
-                  type="number"
-                  value={profitRate}
-                  onChange={e => setProfitRate(e.target.value)}
-                />
-                （加值：{profitValue.toLocaleString()} 元）
-              </td>
-            </tr>
-
-            <tr className="bg-gray-100 font-bold">
-              <td className="p-2 border">建議毛利率（%）</td>
-              <td className="p-2 border">
-                <input
-                  className="border p-1 w-24 text-right"
-                  type="number"
-                  value={marginRate}
-                  onChange={e => setMarginRate(e.target.value)}
-                />
-              </td>
-            </tr>
-
-            <tr className="bg-gray-200 font-bold text-lg">
-              <td className="p-2 border">報價總額</td>
-              <td className="p-2 border text-blue-600">
-                {finalPrice.toLocaleString()} 元
-              </td>
+            <tr className="bg-gray-200 font-bold">
+              <td className="p-2 border">總成本</td>
+              <td className="p-2 border">{totalCost.toLocaleString()} 元</td>
             </tr>
           </tbody>
         </table>
 
-        {/* 圓餅圖 + 色卡 */}
-        <div className="flex gap-10">
-          <canvas id="chart-pie" width="300"></canvas>
+        {/* 利率設定 */}
+        <div className="flex gap-6 mb-6">
+          <div>
+            <label className="font-bold">利管率（%）：</label>
+            <input
+              type="number"
+              className="border p-2 ml-2 w-24"
+              value={rates.manage}
+              onChange={e => setRates({ ...rates, manage:Number(e.target.value) })}
+            />
+          </div>
 
-          <div className="space-y-2 text-sm">
-            <div><span className="inline-block w-4 h-4 bg-blue-500 mr-2"></span>材料</div>
-            <div><span className="inline-block w-4 h-4 bg-green-500 mr-2"></span>市購品</div>
-            <div><span className="inline-block w-4 h-4 bg-yellow-500 mr-2"></span>製作</div>
-            <div><span className="inline-block w-4 h-4 bg-red-500 mr-2"></span>運輸</div>
-            <div><span className="inline-block w-4 h-4 bg-purple-500 mr-2"></span>安裝</div>
+          <div>
+            <label className="font-bold">建議毛利率（%）：</label>
+            <input
+              type="number"
+              className="border p-2 ml-2 w-24"
+              value={rates.profit}
+              onChange={e => setRates({ ...rates, profit:Number(e.target.value) })}
+            />
+          </div>
+        </div>
+
+        <div className="text-xl font-bold text-indigo-600 mb-4">
+          加利管後成本：{finalManageCost.toLocaleString()} 元
+        </div>
+
+        <div className="text-2xl font-bold text-emerald-600 mb-4">
+          建議報價：{finalSuggest.toLocaleString()} 元
+        </div>
+
+        {/* 圓餅圖 */}
+        <div className="flex gap-6">
+          <canvas id="pieChart" width="240" height="240"></canvas>
+
+          {/* 色卡 */}
+          <div className="flex flex-col justify-center text-sm">
+            <div className="flex items-center mb-2"><div style="width:16px;height:16px;background:#3b82f6" class="mr-2"></div>材料成本</div>
+            <div className="flex items-center mb-2"><div style="width:16px;height:16px;background:#10b981" class="mr-2"></div>市購品</div>
+            <div className="flex items-center mb-2"><div style="width:16px;height:16px;background:#f59e0b" class="mr-2"></div>製作成本</div>
+            <div className="flex items-center mb-2"><div style="width:16px;height:16px;background:#ef4444" class="mr-2"></div>運輸費用</div>
+            <div className="flex items-center mb-2"><div style="width:16px;height:16px;background:#8b5cf6" class="mr-2"></div>現場安裝</div>
           </div>
         </div>
 
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-</script>
-<!-- ==========================================================
-       📌 第 3 段：App 主程式 + ReactDOM.render()
-=========================================================== -->
-<script type="text/babel" data-type="module">
-const { useState, useEffect, useMemo } = React;
-/* ---------------------------------------------------------
-   📌 App 主程式（多工程版）
---------------------------------------------------------- */
-function App() {
-  const [activeTab, setActiveTab] = useState("mat"); // 預設材料頁
-  const [projects, setProjects] = useState(loadProjects());
-  const [activeProject, setActiveProject] = useState("");
-  const [manual, setManual] = useState(0);
-  const [profitRate, setProfitRate] = useState(15);   // 利管比預設 15%
-  const [marginRate, setMarginRate] = useState(35);   // 毛利率預設 35%
+  /* --------------------------------------------------
+     Excel 匯出
+  ---------------------------------------------------*/
+  function exportExcel() {
+    let rows = [["分類","規格","數量","單價","小計"]];
 
-  /* 五大資料庫 */
-  const [matDB, setMatDB] = useState([]);
-  const [purDB, setPurDB] = useState([]);
-  const [fabDB, setFabDB] = useState([]);
-  const [traDB, setTraDB] = useState([]);
-  const [insDB, setInsDB] = useState([]);
-
-  /* Sync Sheet 版本記錄（強制重新渲染用） */
-  const [sheetVersion, setSheetVersion] = useState({
-    material: "", purchase: "", fabricate: "", transport: "", install: ""
-  });
-
-  /* ---------------------------------------------------------
-       📌 初始化：載入 Google Sheet → 建立五大資料庫
-  --------------------------------------------------------- */
-  useEffect(() => {
-    syncDB({
-      type: "material",
-      url: GOOGLE_SHEETS.material,
-      mapping: ["category", "spec", "unit", "price", "weight"],
-      setDB: setMatDB,
-      setSheetVersion
+    pages.slice(0,5).forEach(type => {
+      rows.push([type]);
+      data[type].forEach(row => {
+        rows.push([
+          row.category,
+          row.spec,
+          row.qty,
+          row.price,
+          row.subtotal
+        ]);
+      });
+      rows.push(["調整", adjust[type]]);
+      rows.push([]);
     });
 
-    syncDB({
-      type: "purchase",
-      url: GOOGLE_SHEETS.purchase,
-      mapping: ["category", "spec", "unit", "price"],
-      setDB: setPurDB,
-      setSheetVersion
-    });
+    rows.push(["總成本", totalCost]);
 
-    syncDB({
-      type: "fabricate",
-      url: GOOGLE_SHEETS.fabricate,
-      mapping: ["category", "spec", "unit", "price"],
-      setDB: setFabDB,
-      setSheetVersion
-    });
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
+      + rows.map(e => e.join(",")).join("\n");
 
-    syncDB({
-      type: "transport",
-      url: GOOGLE_SHEETS.transport,
-      mapping: ["category", "spec", "unit", "price"],
-      setDB: setTraDB,
-      setSheetVersion
-    });
+    const a = document.createElement("a");
+    a.href = encodeURI(csvContent);
+    a.download = "成本總表.csv";
+    a.click();
+  }
 
-    syncDB({
-      type: "install",
-      url: GOOGLE_SHEETS.install,
-      mapping: ["category", "spec", "unit", "price"],
-      setDB: setInsDB,
-      setSheetVersion
-    });
-  }, []);
-
-
-  /* ---------------------------------------------------------
-       📌 工程（Project）資料結構
-       每個工程會有：
-       - items：五大成本所有紀錄
-       - manual：手動調整
-       - profitRate：利管比
-       - marginRate：毛利率
-  --------------------------------------------------------- */
-  const ensureProject = name => {
-    if (!projects[name]) {
-      const newData = {
-        ...projects,
-        [name]: {
-          items: [],
-          manual: 0,
-          profitRate: 15,
-          marginRate: 35
-        }
-      };
-      setProjects(newData);
-      saveProjects(newData);
-    }
-  };
-
-
-  /* ---------------------------------------------------------
-       📌 建立新工程
-  --------------------------------------------------------- */
-  const createProject = () => {
-    const name = prompt("請輸入新工程名稱：");
-    if (!name) return;
-
-    ensureProject(name);
-    setActiveProject(name);
-
-    setManual(0);
-    setProfitRate(15);
-    setMarginRate(35);
-  };
-
-
-  /* ---------------------------------------------------------
-       📌 切換工程
-  --------------------------------------------------------- */
-  const switchProject = name => {
-    setActiveProject(name);
-    const p = projects[name];
-    if (p) {
-      setManual(p.manual);
-      setProfitRate(p.profitRate);
-      setMarginRate(p.marginRate);
-    }
-  };
-
-
-  /* ---------------------------------------------------------
-       📌 刪除工程
-  --------------------------------------------------------- */
-  const removeProject = name => {
-    if (!confirm(`確定刪除工程：${name}？`)) return;
-    const newData = { ...projects };
-    delete newData[name];
-    setProjects(newData);
-    saveProjects(newData);
-    setActiveProject("");
-  };
-
-
-  /* ---------------------------------------------------------
-       📌 當前工程 items 快取
-  --------------------------------------------------------- */
-  const currentItems = activeProject ? (projects[activeProject]?.items || []) : [];
-
-
-  /* ---------------------------------------------------------
-       📌 更新工程資料（Add / Delete / Edit）
-  --------------------------------------------------------- */
-  const updateProjectItems = newItems => {
-    if (!activeProject) return;
-
-    const updated = {
-      ...projects,
-      [activeProject]: {
-        ...projects[activeProject],
-        items: newItems,
-        manual,
-        profitRate,
-        marginRate
-      }
-    };
-
-    setProjects(updated);
-    saveProjects(updated);
-  };
-
-  /* 新增 */
-  const addItem = item => {
-    const newList = [...currentItems, item];
-    updateProjectItems(newList);
-  };
-
-  /* 刪除 */
-  const deleteItem = id => {
-    const newList = currentItems.filter(x => x.id !== id);
-    updateProjectItems(newList);
-  };
-
-  /* 修改 */
-  const updateItem = (id, data) => {
-    const newList = currentItems.map(x => x.id === id ? { ...x, ...data } : x);
-    updateProjectItems(newList);
-  };
-
-
-  /* ---------------------------------------------------------
-       📌 匯出 Excel（呼叫工具）
-  --------------------------------------------------------- */
-  const exportExcelFile = () => {
-    if (!activeProject) return alert("請先選擇工程");
-
-    const items = currentItems;
-
-    const format = type =>
-      items
-        .filter(x => x.type === type)
-        .map(x => ({
-          名稱: x.name || x.category,
-          規格: x.spec,
-          數量: x.qty,
-          單價: x.unitPrice,
-          小計: x.subtotal
-        }));
-
-    exportExcel({
-      projectName: activeProject,
-      material: format("材料"),
-      purchase: format("市購品"),
-      fabricate: format("製作"),
-      transport: format("運輸"),
-      install: format("安裝"),
-      summary: [{
-        工程名稱: activeProject,
-        手動調整: manual,
-        利管比: profitRate + "%",
-        毛利率: marginRate + "%"
-      }]
-    });
-  };
-
-
-  /* ---------------------------------------------------------
-       📌 Render UI
-  --------------------------------------------------------- */
+  /* --------------------------------------------------
+     主畫面 Render
+  ---------------------------------------------------*/
   return (
     <div>
 
-      {/* 工程選擇列 */}
-      <div className="no-print bg-white shadow p-3 flex items-center gap-3">
-
-        <button
-          className="px-4 py-2 bg-blue-600 text-white rounded"
-          onClick={createProject}
-        >
-          ➕ 新工程
-        </button>
-
-        <select
-          className="border p-2 rounded"
-          value={activeProject}
-          onChange={e => switchProject(e.target.value)}
-        >
-          <option value="">請選擇工程</option>
-          {Object.keys(projects).map(name => (
-            <option key={name}>{name}</option>
-          ))}
-        </select>
-
-        {activeProject && (
+      {/* 標籤列 */}
+      <div className="flex gap-2 mb-6">
+        {pages.map(p => (
           <button
-            className="px-3 py-1 bg-red-500 text-white rounded"
-            onClick={() => removeProject(activeProject)}
+            key={p}
+            className={
+              "tab-btn " + (page === p ? "tab-active" : "tab-inactive")
+            }
+            onClick={() => setPage(p)}
           >
-            刪除工程
+            {p}
           </button>
-        )}
+        ))}
+      </div>
 
+      {/* 分頁內容 */}
+      {page === "材料成本"   && renderCostPage(MATERIAL_OPTIONS, "材料成本")}
+      {page === "市購品"     && renderCostPage(PURCHASE_OPTIONS, "市購品")}
+      {page === "製作成本"   && renderCostPage(FABRICATE_OPTIONS, "製作成本")}
+      {page === "運輸費用"   && renderCostPage(TRANSPORT_OPTIONS, "運輸費用")}
+      {page === "現場安裝"   && renderCostPage(INSTALL_OPTIONS, "現場安裝")}
+      {page === "總表"       && renderSummary()}
+
+      {/* 匯出 */}
+      <div className="text-center mt-8">
         <button
-          onClick={exportExcelFile}
-          className="px-4 py-2 bg-emerald-600 text-white rounded ml-auto"
+          className="px-6 py-3 bg-indigo-600 text-white rounded-lg text-lg shadow"
+          onClick={exportExcel}
         >
-          📤 匯出 Excel
+          ⬇ 匯出 Excel 成本總表
         </button>
       </div>
 
-      {/* 分頁 Tabs */}
-      <TopTabs active={activeTab} setActive={setActiveTab} />
-
-      {/* 主內容 */}
-      <div>
-        {activeTab === "mat" && (
-          <MaterialCalc
-            db={matDB}
-            items={currentItems}
-            addItem={addItem}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-        )}
-
-        {activeTab === "pur" && (
-          <PurchaseCalc
-            db={purDB}
-            items={currentItems}
-            addItem={addItem}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-        )}
-
-        {activeTab === "fab" && (
-          <FabricateCalc
-            db={fabDB}
-            items={currentItems}
-            addItem={addItem}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-        )}
-
-        {activeTab === "tra" && (
-          <TransportCalc
-            db={traDB}
-            items={currentItems}
-            addItem={addItem}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-        )}
-
-        {activeTab === "ins" && (
-          <InstallCalc
-            db={insDB}
-            items={currentItems}
-            addItem={addItem}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-        )}
-
-        {activeTab === "sum" && (
-          <SummaryPage
-            items={currentItems}
-            projectName={activeProject}
-            manual={manual}
-            setManual={setManual}
-            profitRate={profitRate}
-            setProfitRate={setProfitRate}
-            marginRate={marginRate}
-            setMarginRate={setMarginRate}
-          />
-        )}
-      </div>
     </div>
   );
 }
 
-
-/* ---------------------------------------------------------
-   📌 ReactDOM 渲染（入口）
---------------------------------------------------------- */
+/* ------------------------------------------------------
+   ReactDOM Render
+-------------------------------------------------------*/
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
 
 </script>
-
 </body>
 </html>
+
