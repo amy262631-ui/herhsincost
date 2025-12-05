@@ -20,13 +20,26 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 
   <style>
-    body {
-      background: #f3f4f6;
-      font-family: "Inter", "微軟正黑體", sans-serif;
+    body { background: #f3f4f6; }
+    .modal-bg {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: flex; justify-content: center; align-items: center;
+      z-index: 50;
     }
-    .no-print { display: block; }
+    .modal-box {
+      background: white;
+      padding: 20px;
+      width: 90%; max-width: 900px;
+      border-radius: 12px;
+      max-height: 90vh; overflow-y: auto;
+    }
+    #chart-pie {
+      width: 360px !important; height: 360px !important;
+    }
     @media print {
       .no-print { display: none !important; }
+      body { background: white; }
     }
   </style>
 </head>
@@ -36,8 +49,9 @@
 
   <!-- React App Start -->
   <script type="text/babel" data-presets="react,env">
+Chart.register(ChartDataLabels); 
     const GOOGLE_SHEETS = {
-  material:
+        material:
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=0&single=true&output=csv", 
   purchase:
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1300343145&single=true&output=csv",
