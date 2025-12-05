@@ -3,20 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>工程五大成本試算系統（Mode C｜ESM + JSX）</title>
+  <title>工程五大成本試算系統（Mode C｜UMD + Babel）</title>
 
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- React 18 ESM -->
-<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- React 18 UMD -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 
-  <!-- Chart.js + DataLabels ESM -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- Chart.js + DataLabels (UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
   <style>
     body {
@@ -34,11 +35,16 @@
   <div id="root"></div>
 
   <!-- ============================
-       全域工具函式（乾淨版本）
+       全部程式：Helper + React App
+       用 UMD + Babel（不要 module）
   ============================== -->
-  <script type="module">
-    /* 📌 1. CSV Fetch */
-    export async function fetchCSV(url) {
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    /* ============================
+       📌 1. CSV Fetch（共用）
+    ============================== */
+    async function fetchCSV(url) {
       const res = await fetch(url);
       const text = await res.text();
       return text
@@ -49,8 +55,10 @@
         );
     }
 
-    /* 📌 2. localStorage 工具 */
-    export function loadDB(key, def) {
+    /* ============================
+       📌 2. localStorage 工具
+    ============================== */
+    function loadDB(key, def) {
       try {
         return JSON.parse(localStorage.getItem(key) || JSON.stringify(def));
       } catch {
@@ -58,12 +66,14 @@
       }
     }
 
-    export function saveDB(key, data) {
+    function saveDB(key, data) {
       localStorage.setItem(key, JSON.stringify(data));
     }
 
-    /* 📌 3. Sheet 版本碼 */
-    export function calcSheetVersion(rows) {
+    /* ============================
+       📌 3. Sheet 版本碼
+    ============================== */
+    function calcSheetVersion(rows) {
       if (!rows || rows.length < 2) return "EMPTY";
       return (
         rows.length +
@@ -74,8 +84,10 @@
       );
     }
 
-    /* 📌 4. 通用同步器（Mode C 核心） */
-    export async function syncDB({ type, url, mapping, setDB, setSheetVersion }) {
+    /* ============================
+       📌 4. 通用同步器（Mode C 核心）
+    ============================== */
+    async function syncDB({ type, url, mapping, setDB, setSheetVersion }) {
       const SYNC_KEY = `${type}DB_syncTime`;
       const VERSION_KEY = `${type}DB_version`;
 
@@ -88,13 +100,15 @@
 
         const localData = loadDB(`${type}DB`, []);
 
+        // 若版本相同且本地有資料 → 只更新時間顯示
         if (newVersion === oldVersion && localData.length > 0) {
-          const now = Date.now().toString();
+          const now = new Date().toLocaleString();
           localStorage.setItem(SYNC_KEY, now);
           setSheetVersion(v => ({ ...v, [type]: now }));
           return;
         }
 
+        // 重新轉換 CSV 為資料庫
         const list = rows.slice(1).map((r, idx) => {
           const obj = { id: Date.now() + idx };
           mapping.forEach((key, i) => {
@@ -109,7 +123,7 @@
         setDB(list);
         localStorage.setItem(VERSION_KEY, newVersion);
 
-        const now = Date.now().toString();
+        const now = new Date().toLocaleString();
         localStorage.setItem(SYNC_KEY, now);
         setSheetVersion(v => ({ ...v, [type]: now }));
       } catch (err) {
@@ -117,25 +131,16 @@
       }
     }
 
-    /* 📌 5. 多工程 */
-    export function loadProjects() {
+    /* ============================
+       📌 5. 多工程 load / save
+    ============================== */
+    function loadProjects() {
       return loadDB("allProjects", {});
     }
 
-    export function saveProjects(data) {
+    function saveProjects(data) {
       saveDB("allProjects", data);
     }
-  </script>
-  <!-- ============================
-       React Components - PART 2
-  ============================== -->
-
-  <script type="module" data-plugins="transform-react-jsx">
-    const {
-      useState,
-      useEffect,
-      useMemo
-    } = React;
 
     /* ============================================
        📌 Google Sheet CSV 來源
@@ -157,18 +162,22 @@
         "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=183776968&single=true&output=csv",
     };
 
-
     /* ============================================
        🏗 ProjectHeader（多工程切換 / 新增 / 刪除）
     ============================================= */
-    function ProjectHeader({ project, setProject, projects, updateProjectList }) {
+    function ProjectHeader({ project, setProject, projects, setProjects }) {
       const [newName, setNewName] = useState("");
 
       const createProject = () => {
         if (!newName.trim()) return alert("工程名稱不可空白");
         if (projects[newName]) return alert("工程名稱已存在");
 
-        updateProjectList(newName, { allItems: [], manualAdjust: {} });
+        const updated = {
+          ...projects,
+          [newName]: { allItems: [], manualAdjust: 0 },
+        };
+        setProjects(updated);
+        saveProjects(updated);
         setProject(newName);
         setNewName("");
       };
@@ -183,7 +192,8 @@
         const names = Object.keys(newList);
         const next = names.length > 0 ? names[0] : "";
 
-        updateProjectList(null, newList);
+        setProjects(newList);
+        saveProjects(newList);
         setProject(next);
       };
 
@@ -236,9 +246,8 @@
       );
     }
 
-
     /* ============================================
-       ☁️ SyncStatus（同步顯示 + 手動同步按鈕）
+       ☁️ SyncStatus（同步顯示 + 手動同步）
     ============================================= */
     function SyncStatus({ sheetVersion, triggerSync }) {
       return (
@@ -263,11 +272,10 @@
       );
     }
 
-
     /* ============================================
-       🧱 MaterialCalc（材料成本試算）
+       🧱 MaterialCalc（材料成本）
     ============================================= */
-    function MaterialCalc({ db, addItem, items, deleteItem, updateItem }) {
+    function MaterialCalc({ db, addItem, items, deleteItem }) {
       const [category, setCategory] = useState("");
       const [spec, setSpec] = useState("");
 
@@ -338,7 +346,6 @@
         setSpec("");
       };
 
-
       const materialItems = items.filter(x => x.type === "材料成本");
       const totalWeight = materialItems.reduce((s, x) => s + (Number(x.weight) || 0), 0);
       const totalCost = materialItems.reduce((s, x) => s + (Number(x.subtotal) || 0), 0);
@@ -379,15 +386,12 @@
               </select>
             </div>
           )}
-          {/* ------------------------------
-                材料輸入欄位
-          ------------------------------ */}
+
           {selected && (
             <div className="grid grid-cols-4 gap-4 mb-4">
-
               {/* 長度 / 面積 L */}
               <div>
-                <label>{isPlate ? "長度 (m)" : "長度 (m)"}</label>
+                <label>長度 (m)</label>
                 <input
                   className="border p-2 rounded w-full"
                   value={isPlate ? L : len2}
@@ -448,9 +452,7 @@
             ➕ 加入材料項目
           </button>
 
-          {/* ------------------------------
-                材料清單列表
-          ------------------------------ */}
+          {/* 材料清單 */}
           <table className="table-auto w-full text-sm border">
             <thead className="bg-gray-100">
               <tr>
@@ -489,9 +491,7 @@
             </tbody>
           </table>
 
-          {/* ------------------------------
-                材料總結
-          ------------------------------ */}
+          {/* 材料總結 */}
           <div className="mt-4 text-right text-gray-700">
             <p>總重量：{totalWeight.toFixed(2)} kg</p>
             <p className="text-lg font-bold">
@@ -522,15 +522,15 @@
           type: "市購品",
           name: row.name,
           spec: row.spec,
-          qty: row.qty,
+          qty: row.qty || 1,
           unit: row.unit,
           unitPrice: row.price,
-          subtotal: row.qty * row.price,
+          subtotal: (row.qty || 1) * row.price,
         });
       };
 
       const rows = items.filter(x => x.type === "市購品");
-      const total = rows.reduce((s, x) => s + x.subtotal, 0);
+      const total = rows.reduce((s, x) => s + (x.subtotal || 0), 0);
 
       return (
         <div className="bg-white p-4 rounded-xl shadow mb-4">
@@ -580,7 +580,6 @@
       );
     }
 
-
     /* ============================================
        🔧 FabricateCalc（製作成本）
     ============================================= */
@@ -609,7 +608,7 @@
       };
 
       const rows = items.filter(x => x.type === "製作");
-      const total = rows.reduce((s, x) => s + x.subtotal, 0);
+      const total = rows.reduce((s, x) => s + (x.subtotal || 0), 0);
 
       return (
         <div className="bg-white p-4 rounded-xl shadow mb-4">
@@ -657,7 +656,6 @@
       );
     }
 
-
     /* ============================================
        🚚 TransportCalc（運輸成本）
     ============================================= */
@@ -686,7 +684,7 @@
       };
 
       const rows = items.filter(x => x.type === "運輸");
-      const total = rows.reduce((s, x) => s + x.subtotal, 0);
+      const total = rows.reduce((s, x) => s + (x.subtotal || 0), 0);
 
       return (
         <div className="bg-white p-4 rounded-xl shadow mb-4">
@@ -732,7 +730,6 @@
       );
     }
 
-
     /* ============================================
        🛠 InstallCalc（安裝成本）
     ============================================= */
@@ -760,7 +757,7 @@
       };
 
       const rows = items.filter(x => x.type === "安裝");
-      const total = rows.reduce((s, x) => s + x.subtotal, 0);
+      const total = rows.reduce((s, x) => s + (x.subtotal || 0), 0);
 
       return (
         <div className="bg-white p-4 rounded-xl shadow mb-4">
@@ -805,346 +802,321 @@
         </div>
       );
     }
-/* ============================================================
-   📊 SummaryPage（總表 + 圓餅圖）
-============================================================ */
-const SummaryPage = ({ allItems, project, manualAdjust, setManualAdjust }) => {
-  const calcSubtotal = (qty, price) =>
-    Number(qty || 0) * Number(price || 0);
 
-  const sum = (type) =>
-    allItems
-      .filter((x) => x.type === type)
-      .reduce((s, x) => s + calcSubtotal(x.qty, x.unitPrice), 0);
+    /* ============================================================
+       📊 SummaryPage（總表 + 圓餅圖）
+    ============================================================ */
+    function SummaryPage({ allItems, project, manualAdjust, setManualAdjust }) {
+      const calcSubtotal = (qty, price, subtotal) =>
+        subtotal != null
+          ? Number(subtotal || 0)
+          : Number(qty || 0) * Number(price || 0);
 
-  const material = sum("材料成本");
-  const purchase = sum("市購品");
-  const fabricate = sum("製作成本");
-  const transport = sum("運輸費用");
-  const install = sum("現場安裝");
+      const sum = (type) =>
+        allItems
+          .filter((x) => x.type === type)
+          .reduce((s, x) => s + calcSubtotal(x.qty, x.unitPrice, x.subtotal), 0);
 
-  const total =
-    material +
-    purchase +
-    fabricate +
-    transport +
-    install +
-    Number(manualAdjust || 0);
+      // 注意：這裡的 type 名稱要跟各 Calc 一致
+      const material  = sum("材料成本");
+      const purchase  = sum("市購品");
+      const fabricate = sum("製作");
+      const transport = sum("運輸");
+      const install   = sum("安裝");
 
-  /* --- 圓餅圖渲染 --- */
-  useEffect(() => {
-    const ctx = document.getElementById("chart-pie");
-    if (!ctx) return;
+      const total =
+        material +
+        purchase +
+        fabricate +
+        transport +
+        install +
+        Number(manualAdjust || 0);
 
-    if (window.myChart) window.myChart.destroy();
+      /* --- 圓餅圖渲染 --- */
+      useEffect(() => {
+        const canvas = document.getElementById("chart-pie");
+        if (!canvas) return;
 
-    window.myChart = new window.Chart(ctx, {
-      type: "pie",
-      data: {
-        labels: ["材料", "市購品", "製作", "運輸", "安裝"],
-        datasets: [
-          {
-            data: [material, purchase, fabricate, transport, install],
-            backgroundColor: [
-              "#3b82f6",
-              "#10b981",
-              "#f59e0b",
-              "#ef4444",
-              "#8b5cf6",
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        if (window.myPieChart) {
+          window.myPieChart.destroy();
+        }
+
+        window.myPieChart = new Chart(ctx, {
+          type: "pie",
+          data: {
+            labels: ["材料", "市購品", "製作", "運輸", "安裝"],
+            datasets: [
+              {
+                data: [material, purchase, fabricate, transport, install],
+              },
             ],
           },
-        ],
-      },
-      plugins: [window.ChartDataLabels],
-      options: {
-        plugins: {
-          datalabels: {
-            color: "#fff",
-            font: { size: 14, weight: "bold" },
-            formatter: (v) => (v === 0 ? "" : v.toLocaleString()),
+          options: {
+            plugins: {
+              legend: {
+                position: "bottom",
+              },
+              datalabels: {
+                color: "#000",
+                font: { size: 12, weight: "bold" },
+                formatter: (v) => (v === 0 ? "" : v.toLocaleString()),
+              },
+            },
           },
-        },
-      },
-    });
-  }, [material, purchase, fabricate, transport, install]);
+          plugins: [ChartDataLabels],
+        });
+      }, [material, purchase, fabricate, transport, install]);
 
-  return (
-    <div className="bg-white p-4 rounded-xl shadow mb-10">
-      <h2 className="text-2xl font-bold mb-4">
-        📘 工程總表：{project}
-      </h2>
+      return (
+        <div className="bg-white p-4 rounded-xl shadow mb-10">
+          <h2 className="text-2xl font-bold mb-4">
+            📘 工程總表：{project}
+          </h2>
 
-      <table className="w-full text-sm border mb-6">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="p-2">項目</th>
-            <th className="p-2">金額</th>
-          </tr>
-        </thead>
+          <table className="w-full text-sm border mb-6">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2">項目</th>
+                <th className="p-2">金額</th>
+              </tr>
+            </thead>
 
-        <tbody>
-          <tr>
-            <td className="p-2">材料成本</td>
-            <td className="p-2">{material.toLocaleString()}</td>
-          </tr>
-          <tr>
-            <td className="p-2">市購品</td>
-            <td className="p-2">{purchase.toLocaleString()}</td>
-          </tr>
-          <tr>
-            <td className="p-2">製作成本</td>
-            <td className="p-2">{fabricate.toLocaleString()}</td>
-          </tr>
-          <tr>
-            <td className="p-2">運輸費用</td>
-            <td className="p-2">{transport.toLocaleString()}</td>
-          </tr>
-          <tr>
-            <td className="p-2">現場安裝</td>
-            <td className="p-2">{install.toLocaleString()}</td>
-          </tr>
+            <tbody>
+              <tr>
+                <td className="p-2">材料成本</td>
+                <td className="p-2">{material.toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td className="p-2">市購品</td>
+                <td className="p-2">{purchase.toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td className="p-2">製作成本</td>
+                <td className="p-2">{fabricate.toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td className="p-2">運輸費用</td>
+                <td className="p-2">{transport.toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td className="p-2">現場安裝</td>
+                <td className="p-2">{install.toLocaleString()}</td>
+              </tr>
 
-          {/* 手動調整 */}
-          <tr>
-            <td className="p-2 font-bold">手動調整（±）</td>
-            <td className="p-2">
-              <input
-                className="border p-1 w-32 text-right"
-                value={manualAdjust || ""}
-                onChange={(e) => setManualAdjust(e.target.value)}
-              />
-            </td>
-          </tr>
+              {/* 手動調整 */}
+              <tr>
+                <td className="p-2 font-bold">手動調整（±）</td>
+                <td className="p-2">
+                  <input
+                    className="border p-1 w-32 text-right"
+                    value={manualAdjust || ""}
+                    onChange={(e) => setManualAdjust(e.target.value)}
+                  />
+                </td>
+              </tr>
 
-          <tr className="bg-gray-200 font-bold text-lg">
-            <td className="p-2">總計</td>
-            <td className="p-2 text-blue-600">
-              {total.toLocaleString()} 元
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              <tr className="bg-gray-200 font-bold text-lg">
+                <td className="p-2">總計</td>
+                <td className="p-2 text-blue-600">
+                  {total.toLocaleString()} 元
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
-      {/* 圓餅圖 */}
-      <div className="flex justify-center">
-        <canvas id="chart-pie"></canvas>
-      </div>
-    </div>
-  );
-};
-/* ============================================================
-   📌 App：主程式核心（多工程 Mode C）
-============================================================ */
-const App = () => {
-  /* --- 多工程資料（allProjects） --- */
-  const [projects, setProjects] = useState(loadProjects());
-  const [project, setProject] = useState("");
-
-  /* --- 當前工程的內容：所有明細項目 & 手動調整 --- */
-  const current = projects[project] || { allItems: [], manualAdjust: 0 };
-
-  /* --- 更新整個 allProjects --- */
-  const updateProjectList = (newName, newData) => {
-    let updated;
-
-    // 若有新工程
-    if (newName && newData) {
-      updated = { ...projects, [newName]: newData };
-    } else {
-      // 直接替換整份資料
-      updated = newData;
+          {/* 圓餅圖 */}
+          <div className="flex justify-center">
+            <canvas id="chart-pie" width="360" height="360"></canvas>
+          </div>
+        </div>
+      );
     }
 
-    setProjects(updated);
-    saveProjects(updated);
-  };
+    /* ============================================================
+       📌 App：主程式核心（多工程 Mode C）
+    ============================================================ */
+    function App() {
+      /* --- 多工程資料（allProjects） --- */
+      const [projects, setProjects] = useState(loadProjects());
+      const [project, setProject] = useState("");
 
-  /* --- 更新當前工程內容（allItems or manualAdjust） --- */
-  const updateCurrentProject = (data) => {
-    const newObj = {
-      ...projects,
-      [project]: { ...current, ...data },
-    };
-    setProjects(newObj);
-    saveProjects(newObj);
-  };
+      /* --- 當前工程的內容 --- */
+      const current = projects[project] || { allItems: [], manualAdjust: 0 };
 
-  /* ============================================================
-     📂 五大成本資料庫（本地存取 + Google Sheet 同步）
-  ============================================================ */
-  const [materialDB, setMaterialDB] = useState(loadDB("materialDB", []));
-  const [purchaseDB, setPurchaseDB] = useState(loadDB("purchaseDB", []));
-  const [fabricateDB, setFabricateDB] = useState(loadDB("fabricateDB", []));
-  const [transportDB, setTransportDB] = useState(loadDB("transportDB", []));
-  const [installDB, setInstallDB] = useState(loadDB("installDB", []));
+      /* --- 更新當前工程內容（allItems or manualAdjust） --- */
+      const updateCurrentProject = (data) => {
+        if (!project) return;
+        const newObj = {
+          ...projects,
+          [project]: { ...current, ...data },
+        };
+        setProjects(newObj);
+        saveProjects(newObj);
+      };
 
-  const [sheetVersion, setSheetVersion] = useState({
-    material: "-",
-    purchase: "-",
-    fabricate: "-",
-    transport: "-",
-    install: "-",
-  });
+      /* ============================================================
+         📂 五大成本資料庫（本地存取 + Google Sheet 同步）
+      ============================================================ */
+      const [materialDB, setMaterialDB] = useState(loadDB("materialDB", []));
+      const [purchaseDB, setPurchaseDB] = useState(loadDB("purchaseDB", []));
+      const [fabricateDB, setFabricateDB] = useState(loadDB("fabricateDB", []));
+      const [transportDB, setTransportDB] = useState(loadDB("transportDB", []));
+      const [installDB, setInstallDB] = useState(loadDB("installDB", []));
 
-  /* ============================================================
-     ☁️ 手動同步 Google Sheet
-  ============================================================ */
-  const triggerSync = () => {
-    syncDB({
-      type: "material",
-      url: GOOGLE_SHEETS.material,
-      mapping: ["category", "spec", "unit", "weight", "price"],
-      setDB: setMaterialDB,
-      setSheetVersion,
-    });
-    syncDB({
-      type: "purchase",
-      url: GOOGLE_SHEETS.purchase,
-      mapping: ["category", "spec", "unit", "price"],
-      setDB: setPurchaseDB,
-      setSheetVersion,
-    });
-    syncDB({
-      type: "fabricate",
-      url: GOOGLE_SHEETS.fabricate,
-      mapping: ["category", "mode", "spec", "qty", "unit", "price"],
-      setDB: setFabricateDB,
-      setSheetVersion,
-    });
-    syncDB({
-      type: "transport",
-      url: GOOGLE_SHEETS.transport,
-      mapping: ["category", "spec", "region", "price"],
-      setDB: setTransportDB,
-      setSheetVersion,
-    });
-    syncDB({
-      type: "install",
-      url: GOOGLE_SHEETS.install,
-      mapping: ["category", "mode", "spec", "unit", "price"],
-      setDB: setInstallDB,
-      setSheetVersion,
-    });
-  };
+      const [sheetVersion, setSheetVersion] = useState({
+        material: "-",
+        purchase: "-",
+        fabricate: "-",
+        transport: "-",
+        install: "-",
+      });
 
-  /* --- 進入頁面自動同步（第一次載入）--- */
-  useEffect(() => triggerSync(), []);
+      /* ============================================================
+         ☁️ 手動同步 Google Sheet
+      ============================================================ */
+      const triggerSync = () => {
+        syncDB({
+          type: "material",
+          url: GOOGLE_SHEETS.material,
+          mapping: ["category", "spec", "unit", "weight", "price"],
+          setDB: setMaterialDB,
+          setSheetVersion,
+        });
+        syncDB({
+          type: "purchase",
+          url: GOOGLE_SHEETS.purchase,
+          mapping: ["name", "spec", "unit", "price", "qty"],
+          setDB: setPurchaseDB,
+          setSheetVersion,
+        });
+        syncDB({
+          type: "fabricate",
+          url: GOOGLE_SHEETS.fabricate,
+          mapping: ["name", "spec", "unit", "price"],
+          setDB: setFabricateDB,
+          setSheetVersion,
+        });
+        syncDB({
+          type: "transport",
+          url: GOOGLE_SHEETS.transport,
+          mapping: ["name", "spec", "unit", "price"],
+          setDB: setTransportDB,
+          setSheetVersion,
+        });
+        syncDB({
+          type: "install",
+          url: GOOGLE_SHEETS.install,
+          mapping: ["name", "spec", "unit", "price"],
+          setDB: setInstallDB,
+          setSheetVersion,
+        });
+      };
 
-  /* ============================================================
-     📌 加入 / 刪除 / 更新 明細項目
-  ============================================================ */
-  const addItem = (item) => {
-    updateCurrentProject({
-      allItems: [...current.allItems, item],
-    });
-  };
+      /* --- 進入頁面自動同步一次 --- */
+      useEffect(() => {
+        triggerSync();
+      }, []);
 
-  const deleteItem = (id) => {
-    updateCurrentProject({
-      allItems: current.allItems.filter((x) => x.id !== id),
-    });
-  };
+      /* ============================================================
+         📌 加入 / 刪除 明細項目
+      ============================================================ */
+      const addItem = (item) => {
+        if (!project) return alert("請先選擇工程");
+        updateCurrentProject({
+          allItems: [...current.allItems, item],
+        });
+      };
 
-  const updateItem = (id, patch) => {
-    updateCurrentProject({
-      allItems: current.allItems.map((x) =>
-        x.id === id ? { ...x, ...patch } : x
-      ),
-    });
-  };
+      const deleteItem = (id) => {
+        updateCurrentProject({
+          allItems: current.allItems.filter((x) => x.id !== id),
+        });
+      };
 
-  /* ============================================================
-     📌 主畫面 UI Render
-  ============================================================ */
-  return (
-    <div className="max-w-5xl mx-auto p-4">
-
-      {/* 🏗 多工程控制列 */}
-      <ProjectHeader
-        project={project}
-        setProject={setProject}
-        projects={projects}
-        updateProjectList={(name, data) => {
-          if (data === null) {
-            // 用於刪除工程
-            const newList = name;
-            updateProjectList(null, newList);
-            return;
-          }
-          updateProjectList(name, data);
-        }}
-      />
-
-      {/* ☁️ Google Sheet 同步狀態 */}
-      <SyncStatus sheetVersion={sheetVersion} triggerSync={triggerSync} />
-
-      {/* --- 若未選工程，不顯示內容 --- */}
-      {!project && (
-        <div className="text-center text-gray-600 text-lg py-10">
-          請先在上方建立或選擇一個工程
-        </div>
-      )}
-
-      {/* --- 有選工程才顯示五大成本輸入區 --- */}
-      {project && (
-        <>
-          <MaterialCalc
-            db={materialDB}
-            addItem={addItem}
-            items={current.allItems}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-
-          <PurchaseCalc
-            db={purchaseDB}
-            addItem={addItem}
-            items={current.allItems}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-
-          <FabricateCalc
-            db={fabricateDB}
-            addItem={addItem}
-            items={current.allItems}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-
-          <TransportCalc
-            db={transportDB}
-            addItem={addItem}
-            items={current.allItems}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-
-          <InstallCalc
-            db={installDB}
-            addItem={addItem}
-            items={current.allItems}
-            deleteItem={deleteItem}
-            updateItem={updateItem}
-          />
-
-          {/* 📊 總表 Summary */}
-          <SummaryPage
-            allItems={current.allItems}
+      /* ============================================================
+         📌 主畫面 UI Render
+      ============================================================ */
+      return (
+        <div className="max-w-5xl mx-auto p-4">
+          {/* 🏗 多工程控制列 */}
+          <ProjectHeader
             project={project}
-            manualAdjust={current.manualAdjust}
-            setManualAdjust={(v) =>
-              updateCurrentProject({ manualAdjust: v })
-            }
+            setProject={setProject}
+            projects={projects}
+            setProjects={setProjects}
           />
-        </>
-      )}
-    </div>
-  );
-};
-/* ============================================================
-   📌 React Render（必要）
-============================================================ */
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
 
+          {/* ☁️ Google Sheet 同步狀態 */}
+          <SyncStatus sheetVersion={sheetVersion} triggerSync={triggerSync} />
+
+          {/* --- 若未選工程，不顯示內容 --- */}
+          {!project && (
+            <div className="text-center text-gray-600 text-lg py-10">
+              請先在上方建立或選擇一個工程
+            </div>
+          )}
+
+          {/* --- 有選工程才顯示五大成本輸入區 --- */}
+          {project && (
+            <>
+              <MaterialCalc
+                db={materialDB}
+                addItem={addItem}
+                items={current.allItems}
+                deleteItem={deleteItem}
+              />
+
+              <PurchaseCalc
+                db={purchaseDB}
+                addItem={addItem}
+                items={current.allItems}
+                deleteItem={deleteItem}
+              />
+
+              <FabricateCalc
+                db={fabricateDB}
+                addItem={addItem}
+                items={current.allItems}
+                deleteItem={deleteItem}
+              />
+
+              <TransportCalc
+                db={transportDB}
+                addItem={addItem}
+                items={current.allItems}
+                deleteItem={deleteItem}
+              />
+
+              <InstallCalc
+                db={installDB}
+                addItem={addItem}
+                items={current.allItems}
+                deleteItem={deleteItem}
+              />
+
+              {/* 📊 總表 Summary */}
+              <SummaryPage
+                allItems={current.allItems}
+                project={project}
+                manualAdjust={current.manualAdjust}
+                setManualAdjust={(v) =>
+                  updateCurrentProject({ manualAdjust: v })
+                }
+              />
+            </>
+          )}
+        </div>
+      );
+    }
+
+    /* ============================================================
+       📌 React Render（必要）
+    ============================================================ */
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
