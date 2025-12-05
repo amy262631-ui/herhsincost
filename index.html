@@ -320,6 +320,63 @@ const App = () => {
   /* 分頁 */
   const tabs = ["材料", "市購品", "製作成本", "運輸費用", "現場安裝", "總表"];
   const [tab, setTab] = React.useState("材料");
+  return (
+  <div className="max-w-5xl mx-auto p-4">
+
+    <ProjectHeader
+      project={project}
+      setProject={setProject}
+      projects={projects}
+      updateProjectList={updateProjectList}
+    />
+
+    {!project && (
+      <div className="bg-white p-6 rounded-xl shadow text-center text-xl text-gray-500">
+        👈 請先建立或選擇一個工程
+      </div>
+    )}
+
+    {project && (
+      <>
+        <div className="flex gap-3 mb-4">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              className={`px-4 py-2 rounded ${tab === t ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+              onClick={() => setTab(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* 分頁內容 */}
+        {tab === "材料" && (
+          <MaterialCalc
+            db={materialDB}
+            items={current.allItems}
+            addItem={(i)=>updateCurrentProject({allItems:[...current.allItems,i]})}
+            deleteItem={(id)=>updateCurrentProject({allItems:current.allItems.filter(x=>x.id!==id)})}
+            updateItem={(id,patch)=>updateCurrentProject({allItems:current.allItems.map(x=>x.id===id?{...x,...patch}:x)})}
+          />
+        )}
+
+        {/* 其他分頁同理... */}
+
+        {tab === "總表" && (
+          <SummaryPage
+            allItems={current.allItems}
+            project={project}
+            manualAdjust={current.manualAdjust}
+            setManualAdjust={(v)=>updateCurrentProject({manualAdjust:v})}
+          />
+        )}
+      </>
+    )}
+
+  </div>
+);
+
 /* ============================================================
    🧱 材料成本試算（板材 / 型鋼）＋ 編輯 / 刪除
 ============================================================ */
@@ -1352,15 +1409,10 @@ const SummaryPage = ({ allItems, project, manualAdjust, setManualAdjust }) => {
       },
     });
   }, [material, purchase, fabricate, transport, install]);
-
-  /* =============================
-      UI
-  ============================== */
   return (
     <div className="bg-white p-4 rounded-xl shadow mb-10">
       <h2 className="text-2xl font-bold mb-4">📘 工程總表：{project}</h2>
 
-      {/* 工程總表 */}
       <table className="w-full text-sm border mb-6">
         <thead className="bg-gray-100">
           <tr>
@@ -1368,7 +1420,6 @@ const SummaryPage = ({ allItems, project, manualAdjust, setManualAdjust }) => {
             <th className="p-2">金額</th>
           </tr>
         </thead>
-
         <tbody>
           <tr><td className="p-2">材料成本</td><td className="p-2">{material.toLocaleString()}</td></tr>
           <tr><td className="p-2">市購品</td><td className="p-2">{purchase.toLocaleString()}</td></tr>
@@ -1376,7 +1427,6 @@ const SummaryPage = ({ allItems, project, manualAdjust, setManualAdjust }) => {
           <tr><td className="p-2">運輸費用</td><td className="p-2">{transport.toLocaleString()}</td></tr>
           <tr><td className="p-2">現場安裝</td><td className="p-2">{install.toLocaleString()}</td></tr>
 
-          {/* 手動調整 */}
           <tr>
             <td className="p-2 font-bold">手動調整（±）</td>
             <td className="p-2">
@@ -1395,30 +1445,23 @@ const SummaryPage = ({ allItems, project, manualAdjust, setManualAdjust }) => {
         </tbody>
       </table>
 
-      {/* 操作按鈕（列印 & 匯出） */}
       <div className="flex gap-3 mb-6">
-        <button
-          className="no-print bg-blue-600 text-white px-4 py-2 rounded"
-          onClick={printPage}
-        >
+        <button className="no-print bg-blue-600 text-white px-4 py-2 rounded" onClick={printPage}>
           🖨 列印總表
         </button>
 
-        <button
-          className="no-print bg-emerald-600 text-white px-4 py-2 rounded"
-          onClick={exportExcel}
-        >
-          📥 匯出 Excel（含五大成本表）
+        <button className="no-print bg-emerald-600 text-white px-4 py-2 rounded" onClick={exportExcel}>
+          📥 匯出 Excel
         </button>
       </div>
 
-      {/* 圓餅圖 */}
       <div className="flex justify-center">
         <canvas id="chart-pie"></canvas>
       </div>
     </div>
   );
 };
+
 
 
 /* ============================================================
