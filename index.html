@@ -9,26 +9,14 @@
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- React 18 ESM -->
-  <script type="module">
-    import React from "https://esm.sh/react@18";
-    import ReactDOM from "https://esm.sh/react-dom@18";
-
-    // 讓 JSX Transform 編譯時能找到 React.createElement
-    window.React = React;
-    window.ReactDOM = ReactDOM;
-  </script>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <!-- Chart.js + DataLabels ESM -->
-  <script type="module">
-    import Chart from "https://cdn.jsdelivr.net/npm/chart.js";
-    import ChartDataLabels from "https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels";
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
-    window.Chart = Chart;
-    window.ChartDataLabels = ChartDataLabels;
-  </script>
-
-  <!-- ⭐ 超輕量 JSX Transform（只做 JSX → createElement，不做 Babel 編譯） -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <style>
     body {
