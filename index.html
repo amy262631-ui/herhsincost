@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>工程成本試算系統 - React Standalone</title>
+    <title>工程成本試算系統 - React Standalone (優化版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         /* 確保 Chart.js 容器有固定高度 */
         .chart-container {
@@ -51,33 +52,36 @@
             installation: '🔧 現場安裝',
         };
 
-        // 預設工程結構
+        // 預設工程結構 (新增了 adminFeeRate 和 profitRate)
         const DEFAULT_PROJECTS = {
-            "主工程": { allItems: [], manualAdjust: 0 }
+            "主工程": { 
+                allItems: [], 
+                manualAdjust: 0,
+                adminFeeRate: 0.15, // 管銷預設 15%
+                profitRate: 0.35 // 毛利率預設 35%
+            }
         };
         const INITIAL_PROJECT_NAME = "主工程";
 
         // --- Utility Functions ---
 
-        // CSV 轉 JSON
+        // CSV 轉 JSON (同前)
         const csvToJson = (csv, key) => {
             const lines = csv.split('\n').filter(line => line.trim() !== '');
             if (lines.length === 0) return [];
             
-            // 處理雙引號內的逗號，並清理前後空白
             const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
             const data = [];
 
             for (let i = 1; i < lines.length; i++) {
                 const currentLine = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(col => col.trim().replace(/^"|"$/g, ''));
-                if (currentLine.length !== header.length) continue; // 跳過格式不正確的行
+                if (currentLine.length !== header.length) continue;
                 
                 const item = {};
                 for (let j = 0; j < header.length; j++) {
                     item[header[j]] = currentLine[j];
                 }
 
-                // 針對不同資料庫處理數字欄位，並過濾掉空欄位
                 const processedItem = {};
                 Object.keys(item).forEach(k => {
                     const value = item[k];
@@ -99,22 +103,19 @@
             return data;
         };
 
-        // 計算 Google Sheet Version for 3️⃣ 模式 C
+        // 計算 Google Sheet Version (同前)
         const calculateVersion = (csv) => {
             const lines = csv.split('\n').filter(line => line.trim() !== '');
             if (lines.length === 0) return 'v0';
             
-            // 行數
             const rowCount = lines.length;
-            // 第一列 (Header)
             const firstLine = lines[0].trim();
-            // 最後一列 (Data)
             const lastLine = lines[lines.length - 1].trim();
 
             return `${rowCount}-${firstLine.length}-${lastLine.length}`;
         };
 
-        // 4️⃣ 自動保存到 localStorage
+        // 4️⃣ 自動保存到 localStorage (同前)
         const saveToLocalStorage = (key, data) => {
             try {
                 localStorage.setItem(key, JSON.stringify(data));
@@ -123,10 +124,23 @@
             }
         };
 
-        // 從 localStorage 讀取
+        // 從 localStorage 讀取 (處理新的預設值)
         const loadFromLocalStorage = (key, defaultValue) => {
             try {
                 const storedValue = localStorage.getItem(key);
+                // 為了兼容舊的 localStorage 結構，需要深度合併預設值
+                if (key === 'allProjects' && storedValue) {
+                    const storedProjects = JSON.parse(storedValue);
+                    const mergedProjects = {};
+                    Object.keys(storedProjects).forEach(projName => {
+                        mergedProjects[projName] = {
+                            ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME], // 使用新的預設值
+                            ...storedProjects[projName],
+                        };
+                    });
+                    return mergedProjects;
+                }
+                
                 return storedValue ? JSON.parse(storedValue) : defaultValue;
             } catch (error) {
                 console.error("Error loading from localStorage:", error);
@@ -134,9 +148,70 @@
             }
         };
 
+        /**
+         * 成本計算邏輯 (提取為通用函式，用於明細顯示和總結計算)
+         * @param {object} item - 儲存的項目物件
+         * @param {array} sheetData - 該類別的資料庫數據
+         * @returns {number} subtotal - 小計金額
+         * @returns {number} weight - 計算出的重量 (僅材料有效)
+         * @returns {number} price - 使用的單價
+         */
+        const calculateCostDetail = (item, sheetData) => {
+             // 優先使用 item.forcedPrice (強制單價)
+            const isForcedPrice = typeof item.forcedPrice === 'number' && item.forcedPrice > 0;
+
+            const selectedData = sheetData.find(d => 
+                d.Category === item.Category && 
+                ((item.typeKey === 'materials' && d.Item === item.Item) || 
+                 (item.typeKey === 'purchased' && d.Item === item.Item) ||
+                 (item.typeKey === 'production' && d.Item === item.Item) ||
+                 (item.typeKey === 'transportation' && d.Item === item.Item) ||
+                 (item.typeKey === 'installation' && d.Mode === item.Mode && d.Spec === item.Spec)
+                )
+            );
+
+            let cost = 0;
+            let totalQuantity = 0;
+            let calculatedWeight = 0;
+
+            if (selectedData) {
+                if (item.typeKey === 'materials') {
+                    cost = selectedData.Price || 0;
+                    
+                    if (item.Mode === '板材') {
+                        const area = (item.L || 0) * (item.W || 0);
+                        calculatedWeight = (selectedData.Density || 0) * (item.L || 0) * (item.W || 0) * (item.pcs || 0);
+                        totalQuantity = area * (item.pcs || 0);
+                    } else if (item.Mode === '型鋼') {
+                        calculatedWeight = (selectedData.Density || 0) * (item.len || 0) * (item.qty || 0);
+                        totalQuantity = calculatedWeight; // 型鋼以重量計價
+                    } else {
+                        totalQuantity = item.Quantity || 0;
+                    }
+
+                } else if (item.typeKey === 'purchased') {
+                    cost = selectedData.Price || 0;
+                    totalQuantity = item.Quantity || 0;
+                } else if (item.typeKey === 'production' || item.typeKey === 'transportation') {
+                    cost = selectedData['Unit Cost'] || 0;
+                    totalQuantity = item.Quantity || 0;
+                } else if (item.typeKey === 'installation') {
+                    cost = selectedData.Cost || 0;
+                    totalQuantity = item.Quantity || 0;
+                }
+            }
+
+            // 4. 前面成本明細新增之後 底部顯示的右邊都要有刪除跟編輯的功能 (單價強制更動)
+            const finalCost = isForcedPrice ? item.forcedPrice : cost;
+            const subtotal = totalQuantity * finalCost;
+            
+            return { subtotal, calculatedWeight, price: finalCost };
+        };
+
+
         // --- Custom Hooks ---
 
-        // 3️⃣ Google Sheet 智能同步 Hook
+        // 3️⃣ Google Sheet 智能同步 Hook (同前)
         const useDataSynchronization = () => {
             const [data, setData] = useState({});
             const [syncTime, setSyncTime] = useState(loadFromLocalStorage('syncTime', {}));
@@ -154,7 +229,6 @@
                         const versionKey = `${key}_version`;
                         const dataKey = `${key}_data`;
                         
-                        // 從 localStorage 讀取資料和版本
                         const cachedData = loadFromLocalStorage(dataKey, []);
                         const cachedVersion = localStorage.getItem(versionKey);
 
@@ -166,10 +240,8 @@
                             const currentVersion = calculateVersion(csv);
                             
                             if (currentVersion === cachedVersion && cachedData.length > 0) {
-                                // 模式 C: 若 version 相同 → 用 localStorage
                                 newData[key] = cachedData;
                             } else {
-                                // 模式 C: 若 version 不同 → 更新 localStorage
                                 console.log(`Data for ${key} is outdated or missing. Updating...`);
                                 const parsedData = csvToJson(csv, key);
                                 newData[key] = parsedData;
@@ -180,7 +252,6 @@
                                 updated = true;
                             }
                         } catch (error) {
-                            // 若 API 獲取失敗，使用本地緩存
                             console.error(`Failed to fetch and parse ${key} data. Using cached data.`, error);
                             newData[key] = cachedData;
                             if (cachedData.length === 0) {
@@ -192,18 +263,18 @@
                     setData(newData);
                     if (updated) {
                         setSyncTime(newSyncTime);
-                        saveToLocalStorage('syncTime', newSyncTime); // 儲存 sync time
+                        saveToLocalStorage('syncTime', newSyncTime);
                     }
                     setIsLoading(false);
                 };
 
                 syncData();
-            }, []); // 僅在組件掛載時執行一次
+            }, []);
 
             return { data, syncTime, isLoading };
         };
 
-        // 4️⃣ 多工程管理 Hook
+        // 4️⃣ 多工程管理 Hook (同前，但包含了新的費率欄位)
         const useProjectManagement = () => {
             const [projects, setProjects] = useState(() => loadFromLocalStorage('allProjects', DEFAULT_PROJECTS));
             const [currentProjectName, setCurrentProjectName] = useState(() => {
@@ -211,7 +282,6 @@
                 return projects[lastProject] ? lastProject : INITIAL_PROJECT_NAME;
             });
 
-            // 確保切換後的工程名稱存在
             useEffect(() => {
                 if (!projects[currentProjectName]) {
                     const newName = Object.keys(projects)[0] || INITIAL_PROJECT_NAME;
@@ -220,7 +290,6 @@
                 }
             }, [projects, currentProjectName]);
 
-            // 自動保存到 localStorage
             useEffect(() => {
                 saveToLocalStorage('allProjects', projects);
             }, [projects]);
@@ -230,7 +299,7 @@
             }, [currentProjectName]);
 
 
-            // 設置當前工程的資料 (allItems 或 manualAdjust)
+            // 設置當前工程的資料 (allItems, manualAdjust, adminFeeRate, profitRate)
             const updateCurrentProject = useCallback((updateFn) => {
                 setProjects(prevProjects => {
                     const currentProject = prevProjects[currentProjectName];
@@ -252,14 +321,14 @@
                 
                 const newProjects = {
                     ...projects,
-                    [name]: { allItems: [], manualAdjust: 0 }
+                    [name]: { ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME] } // 確保使用新的預設費率
                 };
                 setProjects(newProjects);
                 setCurrentProjectName(name);
                 return true;
             }, [projects]);
 
-            // 刪除工程
+            // 刪除工程 (同前)
             const deleteProject = useCallback((name) => {
                 if (Object.keys(projects).length === 1) return alert("至少需要保留一個工程！");
                 if (!confirm(`確定要刪除工程：${name} 嗎？此操作不可逆！`)) return;
@@ -268,21 +337,20 @@
                 delete newProjects[name];
                 setProjects(newProjects);
 
-                // 如果刪除的是當前工程，則切換到第一個工程
                 if (currentProjectName === name) {
                     const firstProjectName = Object.keys(newProjects)[0];
                     setCurrentProjectName(firstProjectName);
                 }
             }, [projects, currentProjectName]);
             
-            // 切換工程
+            // 切換工程 (同前)
             const switchProject = useCallback((name) => {
                 if (projects[name]) {
                     setCurrentProjectName(name);
                 }
             }, [projects]);
             
-            const currentProject = projects[currentProjectName] || { allItems: [], manualAdjust: 0 };
+            const currentProject = projects[currentProjectName] || { ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME] };
             
             return {
                 projects,
@@ -298,7 +366,7 @@
 
         // --- Component Definitions ---
 
-        // 4️⃣ 多工程切換及管理 UI
+        // 4️⃣ 多工程切換及管理 UI (同前)
         const ProjectSelector = ({ projects, currentProjectName, switchProject, addProject, deleteProject }) => {
             const [newProjectName, setNewProjectName] = useState('');
             const [showAdd, setShowAdd] = useState(false);
@@ -375,9 +443,102 @@
             );
         };
 
+        // 編輯/刪除模態框
+        const EditItemModal = ({ item, sheetData, onClose, onSave }) => {
+            const [quantity, setQuantity] = useState(item.Quantity || item.pcs || item.qty || item.len || item.L || 0);
+            const [forcedPrice, setForcedPrice] = useState(item.forcedPrice || 0);
+            
+            // 根據類型決定預設單價
+            const originalPrice = useMemo(() => {
+                const { price } = calculateCostDetail({ ...item, Quantity: 1, pcs: 1, qty: 1, len: 1, L: 1, forcedPrice: 0 }, sheetData);
+                return price;
+            }, [item, sheetData]);
+            
+            const handleSave = () => {
+                const update = {
+                    Quantity: quantity,
+                    forcedPrice: parseFloat(forcedPrice) || undefined, // 儲存強制單價
+                };
+
+                // 材料模式的數量欄位名稱不同
+                if (item.typeKey === 'materials') {
+                    if (item.Mode === '板材') {
+                        update.L = item.L; // 長寬不變
+                        update.W = item.W;
+                        update.pcs = parseInt(quantity);
+                        delete update.Quantity;
+                    } else if (item.Mode === '型鋼') {
+                        update.len = item.len; // 長度不變
+                        update.qty = parseInt(quantity);
+                        delete update.Quantity;
+                    } else {
+                        update.Quantity = parseFloat(quantity);
+                    }
+                } else {
+                    update.Quantity = parseFloat(quantity);
+                }
+
+                onSave(item.id, update);
+                onClose();
+            };
+
+            const quantityLabel = useMemo(() => {
+                if (item.typeKey === 'materials') {
+                    if (item.Mode === '板材') return '片數 (pcs)';
+                    if (item.Mode === '型鋼') return '支數 (qty)';
+                }
+                return '數量';
+            }, [item]);
+            
+            return (
+                <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg shadow-xl w-96">
+                        <h3 className="text-xl font-bold mb-4">編輯明細項目</h3>
+                        <p className="mb-4 text-sm text-gray-700">項目: {item.Item || item.Category} {item.Mode ? `(${item.Mode} ${item.Spec || ''})` : ''}</p>
+                        
+                        <div className="mb-4">
+                            <label className="block text-gray-700 text-sm font-bold mb-2">{quantityLabel}</label>
+                            <input
+                                type="number"
+                                value={quantity}
+                                onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
+                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                min="0" step="any"
+                            />
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-gray-700 text-sm font-bold mb-2">單價 (強制更動)</label>
+                            <p className="text-xs text-red-500 mb-1">原始單價: {originalPrice.toFixed(2)}</p>
+                            <input
+                                type="number"
+                                value={forcedPrice}
+                                onChange={(e) => setForcedPrice(e.target.value)}
+                                placeholder="輸入新的單價 (0 表示使用原始單價)"
+                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                min="0" step="0.01"
+                            />
+                        </div>
+
+                        <div className="flex justify-end space-x-4">
+                            <button onClick={onClose} className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition duration-150">
+                                取消
+                            </button>
+                            <button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-800 text-white font-bold py-2 px-4 rounded transition duration-150">
+                                保存變更
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+
         // --- 5️⃣ 五大試算頁面基底組件 ---
 
         const BaseSheet = ({ typeKey, data, currentProject, updateCurrentProject }) => {
+            const [editingItem, setEditingItem] = useState(null);
+            
             const { allItems } = currentProject;
             const sheetItems = allItems.filter(item => item.typeKey === typeKey);
             const sheetData = data[typeKey] || [];
@@ -399,9 +560,20 @@
                     return { ...proj, allItems: newAllItems };
                 });
             };
+            
+            // 處理編輯模態框保存
+            const handleSaveEdit = (id, updates) => {
+                 updateCurrentProject(proj => {
+                    const newAllItems = proj.allItems.map(item => 
+                        item.id === id ? { ...item, ...updates } : item
+                    );
+                    return { ...proj, allItems: newAllItems };
+                });
+            };
 
             // 處理項目刪除
             const handleDeleteItem = (id) => {
+                if (!confirm("確定要刪除此項目嗎？")) return;
                 updateCurrentProject(proj => ({
                     ...proj,
                     allItems: proj.allItems.filter(item => item.id !== id)
@@ -416,53 +588,49 @@
                 }));
             };
 
-            // 渲染特殊的輸入欄位
-            const renderInputs = (item, index, selectedData) => {
-                // 邏輯複雜，交由專門的頁面組件處理
+            // 渲染特殊的輸入欄位 (同前)
+            const renderInputs = (item, index) => {
                 if (typeKey === 'materials') {
-                    // 5️⃣ 🧱 材料成本 - 板材與型鋼模式
-                    const isSheet = item.Mode === '板材'; // 根據材料數據庫的 Mode 欄位判斷
+                    const isSheet = item.Mode === '板材';
                     const isSteel = item.Mode === '型鋼';
 
                     if (isSheet) {
                         return (
                             <>
-                                <input type="number" placeholder="長度 L (m)" value={item.L || ''} onChange={(e) => handleChangeItem(index, 'L', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded" min="0" step="0.01" />
-                                <input type="number" placeholder="寬度 W (m)" value={item.W || ''} onChange={(e) => handleChangeItem(index, 'W', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded" min="0" step="0.01" />
-                                <input type="number" placeholder="片數 pcs" value={item.pcs || ''} onChange={(e) => handleChangeItem(index, 'pcs', parseInt(e.target.value) || 0)} className="w-20 p-1 border rounded" min="1" />
+                                <input type="number" placeholder="L (m)" value={item.L || ''} onChange={(e) => handleChangeItem(index, 'L', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
+                                <input type="number" placeholder="W (m)" value={item.W || ''} onChange={(e) => handleChangeItem(index, 'W', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
+                                <input type="number" placeholder="pcs" value={item.pcs || ''} onChange={(e) => handleChangeItem(index, 'pcs', parseInt(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="1" />
                             </>
                         );
                     } else if (isSteel) {
                         return (
                             <>
-                                <input type="number" placeholder="長度 len (m)" value={item.len || ''} onChange={(e) => handleChangeItem(index, 'len', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded" min="0" step="0.01" />
-                                <input type="number" placeholder="支數 qty" value={item.qty || ''} onChange={(e) => handleChangeItem(index, 'qty', parseInt(e.target.value) || 0)} className="w-20 p-1 border rounded" min="1" />
+                                <input type="number" placeholder="len (m)" value={item.len || ''} onChange={(e) => handleChangeItem(index, 'len', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
+                                <input type="number" placeholder="qty" value={item.qty || ''} onChange={(e) => handleChangeItem(index, 'qty', parseInt(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="1" />
                             </>
                         );
                     }
-                    // 其他材料模式 (如果存在)
-                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded" min="0" step="0.01" />;
+                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" />;
                 } 
                 else if (typeKey === 'purchased' || typeKey === 'production' || typeKey === 'transportation') {
-                    // 5️⃣ 🛒 市購品, 🏭 製作成本, 🚚 運輸費用 - 輸入數量
-                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded" min="0" step="0.01" />;
+                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" />;
                 } 
                 else if (typeKey === 'installation') {
-                    // 5️⃣ 🔧 現場安裝 - Mode/Spec 選擇 + 數量
+                    // 這裡不允許直接編輯數量/模式/規格，只能在編輯器內修改數量
                     const modes = [...new Set(sheetData.filter(d => d.Category === item.Category).map(d => d.Mode).filter(m => m))];
                     const specs = [...new Set(sheetData.filter(d => d.Category === item.Category && d.Mode === item.Mode).map(d => d.Spec).filter(s => s))];
                     
                     return (
                         <>
-                            <select value={item.Mode || ''} onChange={(e) => handleChangeItem(index, 'Mode', e.target.value)} className="p-1 border rounded w-28">
-                                <option value="">選擇模式(Mode)</option>
+                            <select value={item.Mode || ''} onChange={(e) => handleChangeItem(index, 'Mode', e.target.value)} className="p-1 border rounded w-24 text-sm">
+                                <option value="">選擇模式</option>
                                 {modes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
                             </select>
-                            <select value={item.Spec || ''} onChange={(e) => handleChangeItem(index, 'Spec', e.target.value)} className="p-1 border rounded w-28">
-                                <option value="">選擇規格(Spec)</option>
+                            <select value={item.Spec || ''} onChange={(e) => handleChangeItem(index, 'Spec', e.target.value)} className="p-1 border rounded w-24 text-sm">
+                                <option value="">選擇規格</option>
                                 {specs.map(spec => <option key={spec} value={spec}>{spec}</option>)}
                             </select>
-                            <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded" min="0" step="0.01" />
+                            <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" disabled />
                         </>
                     );
                 }
@@ -470,73 +638,26 @@
                 return null;
             };
 
-            // 計算小計 (Subtotal)
-            const calculateSubtotal = (item) => {
-                const selectedData = sheetData.find(d => 
-                    d.Category === item.Category && 
-                    ((typeKey === 'materials' && d.Item === item.Item) || 
-                     (typeKey === 'purchased' && d.Item === item.Item) ||
-                     (typeKey === 'production' && d.Item === item.Item) ||
-                     (typeKey === 'transportation' && d.Item === item.Item) ||
-                     (typeKey === 'installation' && d.Mode === item.Mode && d.Spec === item.Spec)
-                    )
-                );
-
-                if (!selectedData) return 0;
-                
-                let cost = 0;
-                let totalQuantity = 0;
-
-                if (typeKey === 'materials') {
-                    // 5️⃣ 🧱 材料成本 - 計算邏輯 (不能更改)
-                    cost = selectedData.Price || 0;
-                    
-                    if (item.Mode === '板材') {
-                        // 自動算 m²
-                        const area = (item.L || 0) * (item.W || 0);
-                        // 自動算重量 (density * L * W * pcs)
-                        const weight = (selectedData.Density || 0) * (item.L || 0) * (item.W || 0) * (item.pcs || 0);
-                        totalQuantity = area * (item.pcs || 0); // 使用總面積 m²
-                        item.calculatedWeight = weight; // 儲存計算的重量 (供顯示)
-                        item.calculatedArea = totalQuantity; // 儲存計算的總面積 (供顯示)
-
-                    } else if (item.Mode === '型鋼') {
-                        // 自動算重量 (density * len * qty)
-                        const weight = (selectedData.Density || 0) * (item.len || 0) * (item.qty || 0);
-                        totalQuantity = weight; // 使用重量
-                        item.calculatedWeight = weight; // 儲存計算的重量 (供顯示)
-                        item.calculatedLength = (item.len || 0) * (item.qty || 0); // 儲存計算的總長度 (供顯示)
-                    } else {
-                        // 其他材料模式，使用 Quantity
-                        totalQuantity = item.Quantity || 0;
-                    }
-
-                    // 材料成本 = 總數量 * 價格
-                    return (totalQuantity * cost);
-
-                } else if (typeKey === 'purchased') {
-                    cost = selectedData.Price || 0;
-                    totalQuantity = item.Quantity || 0;
-                    return (totalQuantity * cost);
-                } else if (typeKey === 'production' || typeKey === 'transportation') {
-                    cost = selectedData['Unit Cost'] || 0;
-                    totalQuantity = item.Quantity || 0;
-                    return (totalQuantity * cost);
-                } else if (typeKey === 'installation') {
-                    cost = selectedData.Cost || 0;
-                    totalQuantity = item.Quantity || 0;
-                    return (totalQuantity * cost);
-                }
-
-                return 0;
-            };
+            // 總計和總重量計算
+            const sheetTotals = useMemo(() => {
+                let totalSubtotal = 0;
+                let totalWeight = 0;
+                sheetItems.forEach(item => {
+                    const { subtotal, calculatedWeight } = calculateCostDetail(item, sheetData);
+                    totalSubtotal += subtotal;
+                    totalWeight += calculatedWeight;
+                });
+                return { totalSubtotal, totalWeight };
+            }, [sheetItems, sheetData]);
             
-            // 渲染項目選擇器 (新增功能)
+            const { totalSubtotal, totalWeight } = sheetTotals;
+
+            // 渲染項目選擇器 (新增功能) (同前)
             const AddItemForm = () => {
                 const [selectedCategory, setSelectedCategory] = useState('');
                 const [selectedItem, setSelectedItem] = useState('');
-                const [selectedMode, setSelectedMode] = useState(''); // for installation
-                const [selectedSpec, setSelectedSpec] = useState(''); // for installation
+                const [selectedMode, setSelectedMode] = useState('');
+                const [selectedSpec, setSelectedSpec] = useState('');
 
                 const filteredItems = useMemo(() => {
                     const items = sheetData.filter(d => d.Category === selectedCategory);
@@ -593,11 +714,19 @@
                         return;
                     } else {
                         const selectedData = filteredItems.find(d => d.Item === selectedItem);
+                        const initialQuantity = typeKey === 'materials' && selectedData.Mode === '板材' ? 1 : 1;
                         handleAddItem({ 
                             Category: selectedCategory, 
                             Item: selectedItem, 
-                            Quantity: 1, 
+                            Quantity: initialQuantity, 
                             Mode: selectedData ? selectedData.Mode : undefined, // 儲存材料模式
+                            // 初始化板材的 L/W/pcs
+                            L: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
+                            W: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
+                            pcs: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
+                            // 初始化型鋼的 len/qty
+                            len: selectedData && selectedData.Mode === '型鋼' ? 1 : undefined,
+                            qty: selectedData && selectedData.Mode === '型鋼' ? 1 : undefined,
                         });
                         setSelectedCategory('');
                         setSelectedItem('');
@@ -632,15 +761,15 @@
                             </select>
                         )}
 
-                        <button onClick={handleAdd} className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150">
+                        <button onClick={handleAdd} className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150" disabled={
+                            typeKey === 'installation' ? (!selectedSpec) : (!selectedItem)
+                        }>
                             新增項目
                         </button>
                     </div>
                 );
             };
 
-            const total = sheetItems.reduce((sum, item) => sum + calculateSubtotal(item), 0);
-            
             return (
                 <div className="mb-6 border border-gray-200 rounded-lg shadow-md overflow-hidden">
                     <h3 className="bg-gray-800 text-white text-lg font-semibold p-3">{CATEGORIES[typeKey]}</h3>
@@ -649,54 +778,55 @@
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead>
                                 <tr className="bg-gray-100 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    <th className="px-6 py-3">類別</th>
-                                    <th className="px-6 py-3">{typeKey === 'installation' ? '模式' : '品項'}</th>
-                                    {typeKey === 'installation' && <th className="px-6 py-3">規格</th>}
-                                    <th className="px-6 py-3">價格/單位成本</th>
-                                    <th className="px-6 py-3">{typeKey === 'materials' ? '尺寸/數量/長度' : '數量'}</th>
-                                    {typeKey === 'materials' && <th className="px-6 py-3">面積/重量</th>}
-                                    <th className="px-6 py-3">小計 (TWD)</th>
-                                    <th className="px-6 py-3">操作</th>
+                                    <th className="px-3 py-3">類別</th>
+                                    <th className="px-3 py-3">{typeKey === 'installation' ? '模式/品項' : '品項'}</th>
+                                    {typeKey === 'installation' && <th className="px-3 py-3">規格</th>}
+                                    <th className="px-3 py-3 text-right">單價</th>
+                                    <th className="px-3 py-3">{typeKey === 'materials' ? '長寬/數量' : '數量'}</th>
+                                    {typeKey === 'materials' && <th className="px-3 py-3 text-right">面積/重量</th>}
+                                    <th className="px-3 py-3 text-right">小計 (TWD)</th>
+                                    <th className="px-3 py-3 text-center">操作</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200 text-sm">
                                 {sheetItems.map((item, index) => {
-                                    const subtotal = calculateSubtotal(item);
-                                    const selectedData = sheetData.find(d => 
-                                        d.Category === item.Category && 
-                                        ((typeKey === 'materials' && d.Item === item.Item) || 
-                                         (typeKey === 'purchased' && d.Item === item.Item) ||
-                                         (typeKey === 'production' && d.Item === item.Item) ||
-                                         (typeKey === 'transportation' && d.Item === item.Item) ||
-                                         (typeKey === 'installation' && d.Mode === item.Mode && d.Spec === item.Spec)
-                                        )
-                                    );
-                                    
-                                    const priceCell = selectedData ? (selectedData.Price || selectedData['Unit Cost'] || selectedData.Cost || 0).toFixed(2) : 'N/A';
+                                    const { subtotal, calculatedWeight, price } = calculateCostDetail(item, sheetData);
                                     
                                     return (
                                         <tr key={item.id} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 whitespace-nowrap">{item.Category}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap">{item.Item || item.Mode}</td>
-                                            {typeKey === 'installation' && <td className="px-6 py-4 whitespace-nowrap">{item.Spec}</td>}
-                                            <td className="px-6 py-4 whitespace-nowrap text-right">{priceCell}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap flex space-x-2">
-                                                {renderInputs(item, index, selectedData)}
+                                            <td className="px-3 py-4 whitespace-nowrap">{item.Category}</td>
+                                            <td className="px-3 py-4 whitespace-nowrap">{item.Item || item.Mode}</td>
+                                            {typeKey === 'installation' && <td className="px-3 py-4 whitespace-nowrap">{item.Spec}</td>}
+                                            <td className="px-3 py-4 whitespace-nowrap text-right">
+                                                {price.toFixed(2)}
+                                                {item.forcedPrice > 0 && <span className="text-red-500 ml-1 text-xs">(F)</span>}
+                                            </td>
+                                            <td className="px-3 py-4 whitespace-nowrap flex space-x-1">
+                                                {renderInputs(item, index)}
                                             </td>
                                             {typeKey === 'materials' && (
-                                                <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                    {item.Mode === '板材' ? `Area: ${(item.calculatedArea || 0).toFixed(2)} m² / Weight: ${(item.calculatedWeight || 0).toFixed(2)} kg` : ''}
-                                                    {item.Mode === '型鋼' ? `Length: ${(item.calculatedLength || 0).toFixed(2)} m / Weight: ${(item.calculatedWeight || 0).toFixed(2)} kg` : ''}
+                                                <td className="px-3 py-4 whitespace-nowrap text-right text-xs">
+                                                    {item.Mode === '板材' ? `Area: ${(item.L * item.W * item.pcs || 0).toFixed(2)} m²` : ''}
+                                                    {item.Mode === '型鋼' ? `Length: ${(item.len * item.qty || 0).toFixed(2)} m` : ''}
+                                                    {(item.Mode === '板材' || item.Mode === '型鋼') ? <><br/>{`Weight: ${calculatedWeight.toFixed(2)} kg`}</> : ''}
                                                     {item.Mode !== '板材' && item.Mode !== '型鋼' && `Qty: ${item.Quantity || 0}`}
                                                 </td>
                                             )}
-                                            <td className="px-6 py-4 whitespace-nowrap text-right font-semibold text-indigo-600">
+                                            <td className="px-3 py-4 whitespace-nowrap text-right font-semibold text-indigo-600">
                                                 {subtotal.toFixed(2)}
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
+                                            {/* 4. 新增刪除跟編輯的功能 */}
+                                            <td className="px-3 py-4 whitespace-nowrap text-center space-x-2">
+                                                <button 
+                                                    onClick={() => setEditingItem(item)}
+                                                    className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                                                    title="編輯數量或強制單價"
+                                                >
+                                                    編輯
+                                                </button>
                                                 <button 
                                                     onClick={() => handleDeleteItem(item.id)} 
-                                                    className="text-red-600 hover:text-red-900 font-bold"
+                                                    className="text-red-600 hover:text-red-900 font-medium text-sm"
                                                     title="刪除項目"
                                                 >
                                                     刪除
@@ -718,64 +848,41 @@
                     
                     <AddItemForm />
 
-                    <div className="bg-gray-100 p-3 text-right text-lg font-bold border-t border-gray-200">
-                        {CATEGORIES[typeKey]} 總計: <span className="text-red-600">{total.toFixed(2)} TWD</span>
+                    <div className="bg-gray-gray-100 p-3 text-right text-lg font-bold border-t border-gray-200 flex justify-between items-center">
+                        <span className="text-gray-800">{CATEGORIES[typeKey]} 總計:</span>
+                        <span className="text-red-600">
+                            {totalSubtotal.toFixed(2)} TWD
+                            {typeKey === 'materials' && (
+                                <span className="text-sm text-gray-600 ml-3"> (總重: {totalWeight.toFixed(2)} kg)</span>
+                            )}
+                        </span>
                     </div>
+
+                    {editingItem && (
+                        <EditItemModal 
+                            item={editingItem}
+                            sheetData={sheetData}
+                            onClose={() => setEditingItem(null)}
+                            onSave={handleSaveEdit}
+                        />
+                    )}
                 </div>
             );
         };
         
-        // 6️⃣ SummaryPage (總表 + 圓餅圖)
-        const SummaryPage = ({ projects, currentProjectName, updateCurrentProject, sheetData }) => {
+        // 6️⃣ SummaryPage (總表 + 圓餅圖 + 新的加總邏輯)
+        const SummaryPage = ({ projects, currentProjectName, updateCurrentProject, sheetData, handleExport }) => {
             const currentProject = projects[currentProjectName];
             const allItems = currentProject.allItems;
             const chartRef = useRef(null);
-            
-            // 計算五大類別總和
+
+            // 計算五大類別總和 (使用優化後的 calculateCostDetail 函式)
             const categoryTotals = useMemo(() => {
                 const totals = { materials: 0, purchased: 0, production: 0, transportation: 0, installation: 0 };
                 
-                // 必須重新計算每個項目的小計
                 allItems.forEach(item => {
                     const sheetItems = sheetData[item.typeKey] || [];
-                    const selectedData = sheetItems.find(d => 
-                        d.Category === item.Category && 
-                        ((item.typeKey === 'materials' && d.Item === item.Item) || 
-                         (item.typeKey === 'purchased' && d.Item === item.Item) ||
-                         (item.typeKey === 'production' && d.Item === item.Item) ||
-                         (item.typeKey === 'transportation' && d.Item === item.Item) ||
-                         (item.typeKey === 'installation' && d.Mode === item.Mode && d.Spec === item.Spec)
-                        )
-                    );
-                    
-                    if (!selectedData) return;
-
-                    let cost = 0;
-                    let totalQuantity = 0;
-                    
-                    if (item.typeKey === 'materials') {
-                        cost = selectedData.Price || 0;
-                        if (item.Mode === '板材') {
-                            const area = (item.L || 0) * (item.W || 0);
-                            totalQuantity = area * (item.pcs || 0);
-                        } else if (item.Mode === '型鋼') {
-                            const weight = (selectedData.Density || 0) * (item.len || 0) * (item.qty || 0);
-                            totalQuantity = weight;
-                        } else {
-                            totalQuantity = item.Quantity || 0;
-                        }
-                    } else if (item.typeKey === 'purchased') {
-                        cost = selectedData.Price || 0;
-                        totalQuantity = item.Quantity || 0;
-                    } else if (item.typeKey === 'production' || item.typeKey === 'transportation') {
-                        cost = selectedData['Unit Cost'] || 0;
-                        totalQuantity = item.Quantity || 0;
-                    } else if (item.typeKey === 'installation') {
-                        cost = selectedData.Cost || 0;
-                        totalQuantity = item.Quantity || 0;
-                    }
-
-                    const subtotal = totalQuantity * cost;
+                    const { subtotal } = calculateCostDetail(item, sheetItems);
                     totals[item.typeKey] += subtotal;
                 });
                 
@@ -787,7 +894,18 @@
                 return Object.values(categoryTotals).reduce((sum, total) => sum + total, 0);
             }, [categoryTotals]);
 
-            // 手動調整
+            // 3. 底部加總優化: 管銷/報價計算
+            const baseCost = totalSum + currentProject.manualAdjust;
+            const adminFee = baseCost * currentProject.adminFeeRate;
+            const finalCostWithAdmin = baseCost + adminFee;
+            
+            // 建議報價: (總成本 + 管銷費用) / (1 - 毛利率)
+            const suggestedQuote = currentProject.profitRate < 1 ? 
+                finalCostWithAdmin / (1 - currentProject.profitRate) : 
+                finalCostWithAdmin;
+                
+
+            // 手動調整 (總成本加減)
             const handleManualAdjustChange = (e) => {
                 const value = parseFloat(e.target.value) || 0;
                 updateCurrentProject(proj => ({
@@ -796,15 +914,31 @@
                 }));
             };
             
-            // 總成本
-            const grandTotal = totalSum + currentProject.manualAdjust;
+            // 管銷費用修改
+            const handleAdminFeeChange = (e) => {
+                const value = parseFloat(e.target.value) || 0;
+                // 判斷是百分比還是金額 (這裡統一用百分比輸入)
+                updateCurrentProject(proj => ({
+                    ...proj,
+                    adminFeeRate: value / 100 // 儲存為比例
+                }));
+            };
+            
+            // 建議報價毛利率修改
+            const handleProfitRateChange = (e) => {
+                const value = parseFloat(e.target.value) || 0;
+                updateCurrentProject(proj => ({
+                    ...proj,
+                    profitRate: value / 100 // 儲存為比例
+                }));
+            };
 
-            // 圓餅圖渲染
+
+            // 圓餅圖渲染 (同前)
             useEffect(() => {
                 const ctx = document.getElementById('costPieChart');
                 if (!ctx) return;
                 
-                // 7️⃣ destroy chart 避免重複 render
                 if (chartRef.current) {
                     chartRef.current.destroy();
                 }
@@ -812,13 +946,8 @@
                 const labels = Object.values(CATEGORIES);
                 const dataValues = Object.values(categoryTotals).map(v => parseFloat(v.toFixed(2)));
                 
-                // 圓餅圖顏色
                 const backgroundColors = [
-                    '#4F46E5', // Indigo (materials)
-                    '#06B6D4', // Cyan (purchased)
-                    '#F59E0B', // Amber (production)
-                    '#10B981', // Emerald (transportation)
-                    '#EF4444', // Red (installation)
+                    '#4F46E5', '#06B6D4', '#F59E0B', '#10B981', '#EF4444', 
                 ];
                 
                 const data = {
@@ -858,7 +987,6 @@
                                     }
                                 }
                             },
-                            // 圓餅圖 DataLabels
                             datalabels: {
                                 color: '#fff',
                                 formatter: (value, context) => {
@@ -871,11 +999,9 @@
                     plugins: [ChartDataLabels]
                 };
                 
-                // 建立新的圓餅圖實例
                 chartRef.current = new Chart(ctx, config);
 
                 return () => {
-                    // 清理函式會執行 destroy chart
                     if (chartRef.current) {
                         chartRef.current.destroy();
                     }
@@ -885,14 +1011,20 @@
 
             return (
                 <div className="p-6 bg-white rounded-lg shadow-2xl">
-                    <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b-4 border-indigo-600 pb-2">
-                        💰 總表與成本分析 - {currentProjectName}
+                    <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b-4 border-indigo-600 pb-2 flex justify-between items-center">
+                        <span>💰 成本總覽 - {currentProjectName}</span>
+                        <button
+                            onClick={() => handleExport(currentProjectName, categoryTotals, currentProject, finalCostWithAdmin, suggestedQuote)}
+                            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 text-sm"
+                        >
+                            列印 / 輸出 Excel 📑
+                        </button>
                     </h2>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         {/* 總表 */}
                         <div>
-                            <h3 className="text-2xl font-semibold text-gray-800 mb-4">總成本試算</h3>
+                            <h3 className="text-2xl font-semibold text-gray-800 mb-4">成本結算明細</h3>
                             <div className="border border-gray-300 rounded-lg overflow-hidden">
                                 <table className="min-w-full divide-y divide-gray-200">
                                     <thead className="bg-gray-50">
@@ -910,17 +1042,17 @@
                                                 </td>
                                             </tr>
                                         ))}
-                                        {/* 總計 */}
-                                        <tr className="bg-indigo-50 font-bold">
-                                            <td className="px-6 py-4 whitespace-nowrap text-base text-indigo-800">試算總和</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-base text-indigo-800 text-right">
+                                        {/* 試算總和 */}
+                                        <tr className="bg-gray-100 font-bold">
+                                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-800">試算總和</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-800 text-right">
                                                 {totalSum.toFixed(2).toLocaleString()}
                                             </td>
                                         </tr>
-                                        {/* 手動調整欄位 */}
+                                        {/* 總成本手動調整 */}
                                         <tr>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center">
-                                                手動調整 (Manual Adjust)
+                                                手動調整 (總成本加減)
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                                                 <input
@@ -932,11 +1064,52 @@
                                                 />
                                             </td>
                                         </tr>
+                                        {/* 總計成本 (基礎成本) */}
+                                        <tr className="bg-indigo-50 font-bold">
+                                            <td className="px-6 py-4 whitespace-nowrap text-base text-indigo-800">基礎成本總計</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-base text-indigo-800 text-right">
+                                                {baseCost.toFixed(2).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                        {/* 管銷費用 */}
+                                        <tr>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center">
+                                                管銷費用
+                                                <input
+                                                    type="number"
+                                                    value={(currentProject.adminFeeRate * 100).toFixed(0)}
+                                                    onChange={handleAdminFeeChange}
+                                                    className="w-16 text-right p-1 border rounded ml-2 text-sm"
+                                                    step="1" min="0" max="100"
+                                                />
+                                                <span className="ml-1 text-xs">%</span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-500 text-right">
+                                                +{adminFee.toFixed(2).toLocaleString()}
+                                            </td>
+                                        </tr>
                                         {/* 最終總成本 */}
+                                        <tr className="bg-red-100 font-extrabold">
+                                            <td className="px-6 py-4 whitespace-nowrap text-xl text-red-800">最終總成本 (含管銷)</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-xl text-red-800 text-right">
+                                                {finalCostWithAdmin.toFixed(2).toLocaleString()} TWD
+                                            </td>
+                                        </tr>
+                                        {/* 建議報價 */}
                                         <tr className="bg-indigo-600 text-white font-extrabold">
-                                            <td className="px-6 py-4 whitespace-nowrap text-xl">最終總成本</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-xl">
+                                                建議報價 (毛利率: 
+                                                <input
+                                                    type="number"
+                                                    value={(currentProject.profitRate * 100).toFixed(0)}
+                                                    onChange={handleProfitRateChange}
+                                                    className="w-12 text-right p-1 border rounded ml-1 text-sm text-gray-800"
+                                                    step="1" min="0" max="99"
+                                                />
+                                                %)
+                                            </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-xl text-right">
-                                                {grandTotal.toFixed(2).toLocaleString()} TWD
+                                                {suggestedQuote.toFixed(2).toLocaleString()} TWD
                                             </td>
                                         </tr>
                                     </tbody>
@@ -959,10 +1132,121 @@
                 </div>
             );
         };
-        
+
+        /**
+         * 輸出 Excel 函式
+         */
+        const handleExportToExcel = (projectName, categoryTotals, projectData, finalCostWithAdmin, suggestedQuote, allData) => {
+            if (!window.XLSX) {
+                alert("XLSX 函式庫未載入！請檢查網路連線。");
+                return;
+            }
+
+            const wb = XLSX.utils.book_new();
+            
+            // 1. 輸出成本總覽頁 (Summary Sheet)
+            const summaryData = [
+                ["工程名稱:", projectName],
+                ["", ""],
+                ["成本項目", "金額 (TWD)"],
+                ...Object.entries(CATEGORIES).map(([key, label]) => [label, categoryTotals[key].toFixed(2)]),
+                ["", ""],
+                ["試算總和", Object.values(categoryTotals).reduce((s, v) => s + v, 0).toFixed(2)],
+                ["手動調整 (加減)", projectData.manualAdjust.toFixed(2)],
+                ["基礎成本總計", (Object.values(categoryTotals).reduce((s, v) => s + v, 0) + projectData.manualAdjust).toFixed(2)],
+                ["", ""],
+                ["管銷費用 (" + (projectData.adminFeeRate * 100).toFixed(0) + "%)", (finalCostWithAdmin - (Object.values(categoryTotals).reduce((s, v) => s + v, 0) + projectData.manualAdjust)).toFixed(2)],
+                ["最終總成本 (含管銷)", finalCostWithAdmin.toFixed(2)],
+                ["", ""],
+                ["建議報價 (毛利率 " + (projectData.profitRate * 100).toFixed(0) + "%)", suggestedQuote.toFixed(2)],
+            ];
+            const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+            XLSX.utils.book_append_sheet(wb, wsSummary, "成本總覽");
+
+            // 2. 輸出每個明細頁 (Detail Sheets)
+            DATA_KEYS.forEach(typeKey => {
+                const sheetItems = projectData.allItems.filter(item => item.typeKey === typeKey);
+                const sheetData = allData[typeKey] || [];
+                const sheetName = CATEGORIES[typeKey].split(' ')[1];
+
+                const detailHeader = [
+                    "類別",
+                    (typeKey === 'installation' ? '模式/品項' : '品項'),
+                    ...(typeKey === 'installation' ? ['規格'] : []),
+                    "數量單位",
+                    "數量",
+                    "單價 (TWD)",
+                    "是否強制單價",
+                    ...(typeKey === 'materials' ? ['長(L) / 寬(W)', '片數(pcs)', '總長/總重'] : []),
+                    "小計 (TWD)"
+                ];
+
+                const detailRows = sheetItems.map(item => {
+                    const { subtotal, calculatedWeight, price } = calculateCostDetail(item, sheetData);
+                    
+                    let quantityValue = item.Quantity || item.pcs || item.qty || item.len || item.L || 0;
+                    let quantityUnit = "單位";
+                    if (typeKey === 'materials') {
+                        if (item.Mode === '板材') {
+                            quantityUnit = 'pcs';
+                            quantityValue = item.pcs || 0;
+                        } else if (item.Mode === '型鋼') {
+                            quantityUnit = 'qty';
+                            quantityValue = item.qty || 0;
+                        }
+                    }
+
+                    const baseRow = [
+                        item.Category,
+                        item.Item || item.Mode,
+                        ...(typeKey === 'installation' ? [item.Spec || ''] : []),
+                        quantityUnit,
+                        quantityValue,
+                        price.toFixed(2),
+                        item.forcedPrice > 0 ? "是" : "否",
+                    ];
+
+                    if (typeKey === 'materials') {
+                        let sizeInfo = '';
+                        let weightInfo = '';
+                        if (item.Mode === '板材') {
+                            sizeInfo = `L: ${item.L || 0} / W: ${item.W || 0}`;
+                            weightInfo = `${calculatedWeight.toFixed(2)} kg (總重)`;
+                        } else if (item.Mode === '型鋼') {
+                            sizeInfo = `len: ${item.len || 0} / qty: ${item.qty || 0}`;
+                            weightInfo = `${calculatedWeight.toFixed(2)} kg (總重)`;
+                        }
+                        return [...baseRow, sizeInfo, item.pcs || item.qty || '', weightInfo, subtotal.toFixed(2)];
+                    }
+
+                    return [...baseRow, subtotal.toFixed(2)];
+                });
+                
+                const finalRows = [
+                    detailHeader,
+                    ...detailRows,
+                    ["", "", "", "", "", "", "", ""],
+                    ["總計:", "", "", "", "", "", "", "", detailRows.reduce((sum, row) => sum + parseFloat(row[row.length - 1]), 0).toFixed(2)]
+                ];
+
+                const wsDetail = XLSX.utils.aoa_to_sheet(finalRows);
+                XLSX.utils.book_append_sheet(wb, wsDetail, sheetName);
+            });
+
+
+            // 輸出檔案
+            XLSX.writeFile(wb, `${projectName}_成本報表_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '')}.xlsx`);
+        };
+
+
         // --- Main App Component ---
 
         const App = () => {
+            // 2. 成本總覽按鈕位置在現場安裝之後
+            const TABS_ORDER = [
+                'materials', 'purchased', 'production', 'transportation', 'installation', 'summary'
+            ];
+            
             const [activeTab, setActiveTab] = useState('summary');
             const { data: sheetData, syncTime, isLoading } = useDataSynchronization();
             const { 
@@ -976,7 +1260,13 @@
                 }
                 
                 if (activeTab === 'summary') {
-                    return <SummaryPage projects={projects} currentProjectName={currentProjectName} updateCurrentProject={updateCurrentProject} sheetData={sheetData} />;
+                    return <SummaryPage 
+                                projects={projects} 
+                                currentProjectName={currentProjectName} 
+                                updateCurrentProject={updateCurrentProject} 
+                                sheetData={sheetData} 
+                                handleExport={handleExportToExcel}
+                            />;
                 }
                 
                 const typeKey = activeTab;
@@ -985,10 +1275,10 @@
                 return <BaseSheet typeKey={typeKey} data={sheetData} currentProject={currentProject} updateCurrentProject={updateCurrentProject} />;
             };
             
-            const tabs = [
-                { key: 'summary', label: '📊 成本總覽' },
-                ...Object.entries(CATEGORIES).map(([key, label]) => ({ key, label }))
-            ];
+            const tabs = TABS_ORDER.map(key => ({
+                key,
+                label: key === 'summary' ? '📊 成本總覽' : CATEGORIES[key]
+            }));
             
             return (
                 <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -1031,18 +1321,35 @@
                         {renderContent()}
                     </main>
 
-                    {/* Footer / Sync Info */}
+                    {/* Footer / Sync Info & CSV URLs */}
                     <footer className="bg-gray-100 border-t border-gray-200 mt-auto p-4 text-xs text-gray-600">
                         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                            <p className="font-semibold mb-1">ℹ️ Google Sheet 資料同步狀態 (模式 C):</p>
-                            <ul className="flex flex-wrap gap-x-4">
-                                {DATA_KEYS.map(key => (
-                                    <li key={key}>
-                                        <span className="font-medium text-gray-700">{CATEGORIES[key].split(' ')[1]}:</span> 
-                                        {syncTime[key] ? ` 最後同步於 ${syncTime[key]}` : ' 尚未同步'}
-                                    </li>
-                                ))}
-                            </ul>
+                            <h3 className="font-bold text-sm text-gray-700 mb-2">Google Sheet 資料庫資訊:</h3>
+                            <div className="flex flex-wrap mb-2">
+                                <p className="font-semibold text-gray-700 mr-4">ℹ️ 資料同步狀態 (模式 C):</p>
+                                <ul className="flex flex-wrap gap-x-4">
+                                    {DATA_KEYS.map(key => (
+                                        <li key={key}>
+                                            <span className="font-medium text-gray-700">{CATEGORIES[key].split(' ')[1]}:</span> 
+                                            {syncTime[key] ? ` 最後同步於 ${syncTime[key]}` : ' 尚未同步'}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            
+                            <div className="mt-3">
+                                <p className="font-semibold text-gray-700 mb-1">🔗 資料庫 CSV 連結路徑 (URL):</p>
+                                <ul className="space-y-1">
+                                    {DATA_KEYS.map(key => (
+                                        <li key={`url-${key}`} className="break-all">
+                                            <span className="font-medium text-indigo-600">{CATEGORIES[key]}:</span> 
+                                            <a href={CSV_URLS[key]} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-1">
+                                                {CSV_URLS[key]}
+                                            </a>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
                         </div>
                     </footer>
                 </div>
