@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>工程成本試算系統 - React Standalone (最終修正版)</title>
+    <title>工程成本試算系統 - React Standalone (最終版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -52,7 +52,7 @@
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
         const { createRoot } = ReactDOM;
 
-        // 2️⃣ 五大 Google Sheet 資料庫 CSV 連結 (請確保這些連結是正確公開的 CSV 格式)
+        // 2️⃣ 五大 Google Sheet 資料庫 CSV 連結 (已使用您提供的連結)
         const BASE_CSV_URLS = {
             materials: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=0&single=true&output=csv",
             purchased: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1300343145&single=true&output=csv",
@@ -73,7 +73,7 @@
         const ALL_ADJUST_KEYS = ['materials', 'purchased', 'production', 'transportation', 'installation'];
 
 
-        // 預設工程結構 (修正 2: manualAdjust 改為物件)
+        // 預設工程結構
         const DEFAULT_PROJECTS = {
             "主工程": { 
                 allItems: [], 
@@ -92,7 +92,7 @@
 
         // --- Utility Functions ---
 
-        // CSV 轉 JSON (同前)
+        // CSV 轉 JSON
         const csvToJson = (csv, key) => {
             const lines = csv.split('\n').filter(line => line.trim() !== '');
             if (lines.length === 0) return [];
@@ -130,7 +130,7 @@
             return data;
         };
 
-        // 計算 Google Sheet Version (同前)
+        // 計算 Google Sheet Version
         const calculateVersion = (csv) => {
             const lines = csv.split('\n').filter(line => line.trim() !== '');
             if (lines.length === 0) return 'v0';
@@ -142,7 +142,7 @@
             return `${rowCount}-${firstLine.length}-${lastLine.length}`;
         };
 
-        // 自動保存到 localStorage (同前)
+        // 自動保存到 localStorage
         const saveToLocalStorage = (key, data) => {
             try {
                 localStorage.setItem(key, JSON.stringify(data));
@@ -151,7 +151,7 @@
             }
         };
 
-        // 從 localStorage 讀取 (同前，並確保 manualAdjust 結構正確)
+        // 從 localStorage 讀取
         const loadFromLocalStorage = (key, defaultValue) => {
             try {
                 const storedValue = localStorage.getItem(key);
@@ -180,7 +180,7 @@
         };
 
         /**
-         * 成本計算邏輯 (同前)
+         * 成本計算邏輯
          */
         const calculateCostDetail = (item, sheetData) => {
             const isForcedPrice = typeof item.forcedPrice === 'number' && item.forcedPrice > 0;
@@ -236,7 +236,7 @@
 
         // --- Custom Hooks ---
 
-        // Google Sheet 智能同步 Hook (修正 1: 增強錯誤提示)
+        // Google Sheet 智能同步 Hook (包含強制更新和錯誤捕獲)
         const useDataSynchronization = () => {
             const [data, setData] = useState({});
             const [syncTime, setSyncTime] = useState(loadFromLocalStorage('syncTime', {}));
@@ -281,9 +281,13 @@
                             }
                         } catch (error) {
                             console.error(`[載入失敗] ${CATEGORIES[key]} 資料載入失敗，原因:`, error);
-                            newData[key] = cachedData;
-                            if (cachedData.length === 0) {
-                                console.error(`[嚴重警告] 無法從 API 或快取獲取 ${CATEGORIES[key]} 資料，請檢查 Google Sheet 連結。`);
+                            // 若載入失敗，嘗試使用快取資料
+                            if (cachedData.length > 0) {
+                                newData[key] = cachedData;
+                                console.warn(`[使用快取] 載入失敗，使用快取資料 (${cachedData.length} 筆)。`);
+                            } else {
+                                newData[key] = [];
+                                console.error(`[嚴重警告] 無法從 API 或快取獲取 ${CATEGORIES[key]} 資料，請檢查 Google Sheet 連結及發布設定。`);
                             }
                         }
                     }
@@ -302,7 +306,7 @@
             return { data, syncTime, isLoading };
         };
 
-        // 多工程管理 Hook (同前，並更新 manualAdjust 處理邏輯)
+        // 多工程管理 Hook
         const useProjectManagement = () => {
             const [projects, setProjects] = useState(() => loadFromLocalStorage('allProjects', DEFAULT_PROJECTS));
             const [currentProjectName, setCurrentProjectName] = useState(() => {
@@ -342,7 +346,7 @@
                 });
             }, [currentProjectName]);
 
-            // 設置特定類別的手動調整值 (修正 2: 新增此函式)
+            // 設置特定類別的手動調整值
             const updateManualAdjust = useCallback((typeKey, value) => {
                 updateCurrentProject(proj => ({
                     ...proj,
@@ -354,7 +358,7 @@
             }, [updateCurrentProject]);
 
 
-            // 新增/刪除/切換工程 (同前)
+            // 新增/刪除/切換工程
             const addProject = useCallback((name) => {
                 if (!name || projects[name]) return false;
                 
@@ -394,7 +398,7 @@
                 currentProjectName,
                 currentProject,
                 updateCurrentProject,
-                updateManualAdjust, // 提供更新手動調整的函式
+                updateManualAdjust, 
                 addProject,
                 deleteProject,
                 switchProject
@@ -404,7 +408,7 @@
 
         // --- Component Definitions ---
 
-        // 工程切換及管理 UI (同前)
+        // 工程切換及管理 UI
         const ProjectSelector = ({ projects, currentProjectName, switchProject, addProject, deleteProject }) => {
             const [newProjectName, setNewProjectName] = useState('');
             const [showAdd, setShowAdd] = useState(false);
@@ -481,7 +485,7 @@
             );
         };
 
-        // 編輯/刪除模態框 (同前)
+        // 編輯/刪除模態框
         const EditItemModal = ({ item, sheetData, onClose, onSave }) => {
             const [quantity, setQuantity] = useState(item.Quantity || item.pcs || item.qty || item.len || item.L || 0);
             const [forcedPrice, setForcedPrice] = useState(item.forcedPrice || 0);
@@ -570,7 +574,7 @@
         };
 
 
-        // 五大試算頁面基底組件 (修正 2: 增加手動調整欄位)
+        // 五大試算頁面基底組件 (包含手動調整欄位)
         const BaseSheet = ({ typeKey, data, currentProject, updateCurrentProject, updateManualAdjust }) => {
             const [editingItem, setEditingItem] = useState(null);
             
@@ -680,7 +684,7 @@
             
             const { totalSubtotal, totalWeight } = sheetTotals;
             
-            // 處理手動調整輸入 (修正 2)
+            // 處理手動調整輸入
             const manualAdjustValue = currentProject.manualAdjust[typeKey] || 0;
             const finalTotal = totalSubtotal + manualAdjustValue;
 
@@ -689,7 +693,7 @@
                 updateManualAdjust(typeKey, value);
             };
 
-            // 渲染項目選擇器 (新增功能) (同前)
+            // 渲染項目選擇器 (新增功能)
             const AddItemForm = () => {
                 const [selectedCategory, setSelectedCategory] = useState('');
                 const [selectedItem, setSelectedItem] = useState('');
@@ -879,7 +883,7 @@
                     
                     <AddItemForm />
 
-                    {/* 修正 2: 總計區塊增加手動調整 */}
+                    {/* 總計區塊增加手動調整 */}
                     <div className="bg-gray-100 p-3 text-right text-lg font-bold border-t border-gray-200 flex justify-end items-center space-x-4">
                         <div className="flex items-center space-x-2 print-hidden">
                              <span className="text-gray-800 text-base font-medium">手動調整 (±):</span>
@@ -984,7 +988,7 @@
                     chartRef.current.destroy();
                 }
 
-                const labels = Object.values(CATEGORIES).filter(label => label !== '總成本');
+                const labels = ALL_ADJUST_KEYS.map(key => CATEGORIES[key]);
                 const dataValues = ALL_ADJUST_KEYS.map(key => parseFloat(categoryTotals[key].toFixed(2)));
                 
                 const backgroundColors = [
@@ -1054,7 +1058,7 @@
                 <div className="p-6 bg-white rounded-lg shadow-2xl print-content">
                     <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b-4 border-indigo-600 pb-2 flex justify-between items-center">
                         <span>💰 成本總覽 - {currentProjectName}</span>
-                        {/* 修正 2: 拆分按鈕 */}
+                        {/* 拆分按鈕 */}
                         <div className="space-x-2 print-hidden">
                             <button
                                 onClick={() => handlePrint()}
@@ -1169,7 +1173,7 @@
             );
         };
         
-        // 輸出 Excel 函式 (已更新邏輯以適應新的手動調整結構)
+        // 輸出 Excel 函式 
         const handleExportToExcel = (projectName, categoryTotals, projectData, finalCostWithAdmin, suggestedQuote, allData) => {
             if (!window.XLSX) {
                 alert("XLSX 函式庫未載入！請檢查網路連線。");
@@ -1296,9 +1300,9 @@
             }
         };
 
-        // 列印報表函式 (同前)
+        // 列印報表函式
         const handlePrint = () => {
-             // 隱藏圖表，因為 Chart.js 在列印時容易出錯
+             // 隱藏圖表
              const chartCanvas = document.getElementById('costPieChart');
              if (chartCanvas) {
                 chartCanvas.style.display = 'none';
@@ -1352,7 +1356,7 @@
                             data={sheetData} 
                             currentProject={currentProject} 
                             updateCurrentProject={updateCurrentProject}
-                            updateManualAdjust={updateManualAdjust} // 傳遞手動調整更新函式
+                            updateManualAdjust={updateManualAdjust}
                         />;
             };
             
