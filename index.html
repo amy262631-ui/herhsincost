@@ -78,6 +78,7 @@ function parseCSV(text) {
  * PART 2 — 多工程管理 ProjectManager（第 2 段）
  ****************************************************/
 
+// 多工程管理
 function ProjectManager({ currentProject, setCurrentProject, projects, setProjects }) {
 
   // 新增工程
@@ -90,12 +91,11 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
       return;
     }
 
-    // 正確的工程結構
     const updated = {
       ...projects,
       [name]: {
         allItems: [],
-        manualAdjust: { ...defaultManualAdjust }
+        manualAdjust: 0   // ★ 正確寫法
       }
     };
 
@@ -123,7 +123,6 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
 
       <div className="flex flex-wrap gap-2">
 
-        {/* 工程切換按鈕 */}
         {Object.keys(projects).map(key => (
           <button
             key={key}
@@ -139,7 +138,6 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
           </button>
         ))}
 
-        {/* 新增工程 */}
         <button
           onClick={addProject}
           className="px-3 py-1 rounded bg-green-600 text-white font-bold"
@@ -147,7 +145,6 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
           ＋ 新增工程
         </button>
 
-        {/* 刪除工程 */}
         {currentProject && (
           <button
             onClick={() => deleteProject(currentProject)}
@@ -159,7 +156,7 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
       </div>
     </div>
   );
-}   // ★★★ 必加
+}
 /****************************************************
  * PART 4 — MaterialsPage（新版，無模式選單）
  * 自動判斷是否為板材（分類含「板」）
