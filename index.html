@@ -132,18 +132,19 @@ function saveData(data) {
 
 // 讀取全部資料（第一次沒有 → 建立預設結構）
 function loadData() {
-  const raw = localStorage.getItem("COST_DATA");
-  if (!raw) {
-    return {
-      "材料成本": [],
-      "市購品": [],
-      "製作成本": [],
-      "運輸費用": [],
-      "現場安裝": [],
-    };
-  }
-  return JSON.parse(raw);
+  const raw = localStorage.getItem("COST_DATA");
+  if (!raw) {
+    return {
+      "材料成本": [],
+      "市購品": [],
+      "製作成本": [],
+      "運輸費用": [],
+      "現場安裝": [],
+    };
+  }
+  return JSON.parse(raw);
 }
+
 
 // 讓舊程式 loadProjects() = loadData()
 function loadProjects() {
