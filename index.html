@@ -73,6 +73,15 @@ function parseCSV(text) {
     return obj;
   });
 }
+function parseTransportRow(r) {
+  return {
+    category: r[0],     // 高空作業車
+    spec: r[1],         // 21M
+    region: r[2],       // 南（地區）
+    price: Number(r[3] || 0),  // 單價
+    unit: r[4] || "台"  // 單位
+  };
+}
 /****************************************************
  * PART X — 工程資料儲存 / 讀取
  ****************************************************/
@@ -1369,9 +1378,22 @@ function App() {
     } else {
       const parsed = rows
         .slice(1)
-        .map(r => r.split(","))
-        .filter(r => r.length >= 3)
-        .map(r => ({
+        ..map(r => r.split(","))
+.filter(r => r.length >= 3)
+.map(r => {
+  if (name === "transport") {
+    return parseTransportRow(r);   // ⭐ 運輸費用用這個
+  }
+  return {
+    category: r[0],
+    spec: r[1],
+    unit: r[2],
+    weight: Number(r[3] || 0),
+    price: Number(r[4] || 0),
+    region: r[5] || ""
+  };
+})
+
           category: r[0],
           spec: r[1],
           unit: r[2],
