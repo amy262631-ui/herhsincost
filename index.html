@@ -50,7 +50,7 @@
 
     <script type="text/babel">
         // 取得 React 相關函式
-        const { useState, useEffect, useCallback, useMemo, useRef } = React;
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
         const { createRoot } = ReactDOM;
 
         // 2️⃣ 五大 Google Sheet 資料庫 CSV 連結 (已使用您提供的連結)
@@ -98,9 +98,6 @@
             // 處理 Windows/Mac 換行符，並移除空白行
             const lines = csv.split(/[\r\n]+/).filter(line => line.trim() !== '');
             if (lines.length === 0) return [];
-            
-            // 由於 Google Sheet CSV 可能使用 Tab 或其他非標準分隔符號，我們使用正規表達式來解析，
-            // 但先以逗號作為主要分隔符號
             
             // 嘗試解析標頭 (第一行)
             // 使用更寬鬆的匹配，避免雙引號內部的逗號造成問題
@@ -193,9 +190,8 @@
             }
         };
 
-        /**
-         * 成本計算邏輯 (此處未變動)
-         */
+        // 成本計算邏輯 (此處省略，保持不變)
+
         const calculateCostDetail = (item, sheetData) => {
             const isForcedPrice = typeof item.forcedPrice === 'number' && item.forcedPrice > 0;
 
@@ -259,7 +255,7 @@
             useEffect(() => {
                 // 檢查 iconv-lite 是否載入
                 if (!window.iconv) {
-                    console.error("iconv-lite 函式庫未載入，無法處理中文編碼！");
+                    console.error("iconv-lite 函式庫未載入，無法處理中文編碼！請在 HTML 中加入 <script src='https://cdn.jsdelivr.net/npm/iconv-lite@0.6.3/lib/index.js'></script>");
                     setIsLoading(false);
                     return;
                 }
@@ -292,11 +288,12 @@
                             try {
                                 csv = iconv.decode(unit8Arr, 'big5');
                                 // 檢查是否仍有亂碼，如果亂碼嚴重，可能需要嘗試 gbk
-                                if (csv.includes('')) { 
+                                if (csv.includes('æ')) { // 簡單檢查 Big5 解碼後是否仍有常見亂碼字元
                                     csv = iconv.decode(unit8Arr, 'gbk');
                                 }
                             } catch (e) {
                                 // 如果 iconv 解碼失敗，嘗試預設的 UTF-8 (但不應出現亂碼問題)
+                                console.warn(`[編碼警告] iconv-lite 解碼失敗，嘗試使用 UTF-8。`);
                                 csv = new TextDecoder('utf-8').decode(unit8Arr);
                             }
 
@@ -322,6 +319,7 @@
                         } catch (error) {
                             console.error(`[載入失敗] ${CATEGORIES[key]} 資料載入失敗，原因:`, error);
                             // 若載入失敗，嘗試使用快取資料
+                            const cachedData = loadFromLocalStorage(`${key}_data`, []); // 重新從 localStorage 載入，防止快取版本判斷錯誤
                             if (cachedData.length > 0) {
                                 newData[key] = cachedData;
                                 console.warn(`[使用快取] 載入失敗，使用快取資料 (${cachedData.length} 筆)。`);
