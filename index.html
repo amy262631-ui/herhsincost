@@ -1,1489 +1,1327 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>工程成本試算系統 - React Standalone (最終版)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/iconv-lite@0.6.3/lib/index.js"></script>  
-    <script src="https://cdn.jsdelivr.net/npm/buffer@6.0.3/index.min.js"></script>
-    <style>
-        /* 確保 Chart.js 容器有固定高度 */
-        .chart-container {
-            position: relative;
-            height: 40vh;
-            width: 100%;
-        }
-        /* 確保整個應用程式主體佔滿螢幕高度 */
-        #root {
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
-        }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工程成本試算系統 - React Standalone (最終版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+        <script src="https://cdn.jsdelivr.net/npm/iconv-lite@0.6.3/lib/index.js"></script>  
+    <script src="https://cdn.jsdelivr.net/npm/buffer@6.0.3/index.min.js"></script>
+    
+    <style>
+        /* 確保 Chart.js 容器有固定高度 */
+        .chart-container {
+            position: relative;
+            height: 40vh;
+            width: 100%;
+        }
+        /* 確保整個應用程式主體佔滿螢幕高度 */
+        #root {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
 
-        /* 專門用於列印的樣式 */
-        @media print {
-            body > :not(.print-content) {
-                display: none !important;
-            }
-            .print-content {
-                display: block !important;
-                /* 確保列印內容佔滿頁面 */
-                width: 100% !important; 
-                margin: 0 !important;
-                padding: 0 !important;
-            }
-            /* 隱藏列印時不需要的元素 */
-            .print-hidden {
-                display: none !important;
-            }
-        }
-    </style>
+        /* 專門用於列印的樣式 */
+        @media print {
+            body > :not(.print-content) {
+                display: none !important;
+            }
+            .print-content {
+                display: block !important;
+                /* 確保列印內容佔滿頁面 */
+                width: 100% !important; 
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            /* 隱藏列印時不需要的元素 */
+            .print-hidden {
+                display: none !important;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root"></div>
 
-    <script type="text/babel">
-        // 取得 React 相關函式
+    <script type="text/babel">
+        // 🚨 修正步驟 1：強制使用 require 載入 iconv-lite 模組
+        const iconv = require('iconv-lite');
+        const Buffer = window.Buffer; // 確保 Buffer 可用 (雖然在 fetch 中可能不需要，但能避免潛在的 require 錯誤)
+
+        // 取得 React 相關函式
 const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        const { createRoot } = ReactDOM;
-
-        // 2️⃣ 五大 Google Sheet 資料庫 CSV 連結 (已使用您提供的連結)
-        const BASE_CSV_URLS = {
-            materials: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=0&single=true&output=csv",
-            purchased: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1300343145&single=true&output=csv",
-            production: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1755952578&single=true&output=csv",
-            transportation: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=11669107&single=true&output=csv",
-            installation: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=183776968&single=true&output=csv",
-        };
-
-        const DATA_KEYS = Object.keys(BASE_CSV_URLS);
-        const CATEGORIES = {
-            materials: '🧱 材料成本',
-            purchased: '🛒 市購品',
-            production: '🏭 製作成本',
-            transportation: '🚚 運輸費用',
-            installation: '🔧 現場安裝',
-            summary: '總成本',
-        };
-        const ALL_ADJUST_KEYS = ['materials', 'purchased', 'production', 'transportation', 'installation'];
-
-
-        // 預設工程結構
-        const DEFAULT_PROJECTS = {
-            "主工程": { 
-                allItems: [], 
-                manualAdjust: {
-                    materials: 0,
-                    purchased: 0,
-                    production: 0,
-                    transportation: 0,
-                    installation: 0,
-                }, 
-                adminFeeRate: 0.15, // 管銷預設 15%
-                profitRate: 0.35 // 毛利率預設 35%
-            }
-        };
-        const INITIAL_PROJECT_NAME = "主工程";
-
-        // --- Utility Functions ---
-        
-        // 修正後的 CSV 轉 JSON 函數 (處理中文編碼和分隔符)
-        const csvToJson = (csv, key) => {
-            // 處理 Windows/Mac 換行符，並移除空白行
-            const lines = csv.split(/[\r\n]+/).filter(line => line.trim() !== '');
-            if (lines.length === 0) return [];
-            
-            // 嘗試解析標頭 (第一行)
-            // 使用更寬鬆的匹配，避免雙引號內部的逗號造成問題
-            const headerLine = lines[0];
-            const header = headerLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
-                                     .map(h => h.trim().replace(/^"|"$/g, ''));
-            
-            const data = [];
-
-            for (let i = 1; i < lines.length; i++) {
-                const currentLine = lines[i];
-                // 使用同樣的正規表達式解析內容
-                const currentCols = currentLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
-                                              .map(col => col.trim().replace(/^"|"$/g, ''));
-                                              
-                if (currentCols.length < header.length) continue; // 確保欄位數符合標頭
-                
-                const item = {};
-                for (let j = 0; j < header.length; j++) {
-                    item[header[j]] = currentCols[j];
-                }
-
-                const processedItem = {};
-                Object.keys(item).forEach(k => {
-                    const value = item[k];
-                    if (value === undefined || value === null || value === '') return;
-
-                    let processedValue = value;
-                    if (['Price', 'Density', 'Unit Cost', 'Cost'].includes(k) || (key === 'materials' && k.endsWith(' Cost'))) {
-                        processedValue = parseFloat(value) || 0;
-                    }
-
-                    processedItem[k] = processedValue;
-                });
-
-                if (Object.keys(processedItem).length > 0) {
-                    data.push(processedItem);
-                }
-            }
-
-            return data;
-        };
-
-        // 計算 Google Sheet Version
-        const calculateVersion = (csv) => {
-            const lines = csv.split('\n').filter(line => line.trim() !== '');
-            if (lines.length === 0) return 'v0';
-            
-            const rowCount = lines.length;
-            const firstLine = lines[0].trim();
-            const lastLine = lines[lines.length - 1].trim();
-
-            return `${rowCount}-${firstLine.length}-${lastLine.length}`;
-        };
-
-        // 自動保存到 localStorage
-        const saveToLocalStorage = (key, data) => {
-            try {
-                localStorage.setItem(key, JSON.stringify(data));
-            } catch (error) {
-                console.error("Error saving to localStorage:", error);
-            }
-        };
-
-        // 從 localStorage 讀取
-        const loadFromLocalStorage = (key, defaultValue) => {
-            try {
-                const storedValue = localStorage.getItem(key);
-                if (key === 'allProjects' && storedValue) {
-                    const storedProjects = JSON.parse(storedValue);
-                    const mergedProjects = {};
-                    Object.keys(storedProjects).forEach(projName => {
-                        mergedProjects[projName] = {
-                            ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME],
-                            ...storedProjects[projName],
-                            // 確保 manualAdjust 是物件且包含所有細項
-                            manualAdjust: {
-                                ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME].manualAdjust,
-                                ...(storedProjects[projName].manualAdjust || {})
-                            }
-                        };
-                    });
-                    return mergedProjects;
-                }
-                
-                return storedValue ? JSON.parse(storedValue) : defaultValue;
-            } catch (error) {
-                console.error("Error loading from localStorage:", error);
-                return defaultValue;
-            }
-        };
-
-        // 成本計算邏輯 (此處省略，保持不變)
-
-        const calculateCostDetail = (item, sheetData) => {
-            const isForcedPrice = typeof item.forcedPrice === 'number' && item.forcedPrice > 0;
-
-            const selectedData = sheetData.find(d => 
-                d.Category === item.Category && 
-                ((item.typeKey === 'materials' && d.Item === item.Item) || 
-                 (item.typeKey === 'purchased' && d.Item === item.Item) ||
-                 (item.typeKey === 'production' && d.Item === item.Item) ||
-                 (item.typeKey === 'transportation' && d.Item === item.Item) ||
-                 (item.typeKey === 'installation' && d.Mode === item.Mode && d.Spec === item.Spec)
-                )
-            );
-
-            let cost = 0;
-            let totalQuantity = 0;
-            let calculatedWeight = 0;
-
-            if (selectedData) {
-                if (item.typeKey === 'materials') {
-                    cost = selectedData.Price || 0;
-                    
-                    if (item.Mode === '板材') {
-                        const area = (item.L || 0) * (item.W || 0);
-                        // 修正：如果 Density 為 0，則避免 NaN
-                        calculatedWeight = (selectedData.Density || 0) * (item.L || 0) * (item.W || 0) * (item.pcs || 0);
-                        totalQuantity = area * (item.pcs || 0);
-                    } else if (item.Mode === '型鋼') {
-                        calculatedWeight = (selectedData.Density || 0) * (item.len || 0) * (item.qty || 0);
-                        totalQuantity = calculatedWeight;
-                    } else {
-                        totalQuantity = item.Quantity || 0;
-                    }
-
-                } else if (item.typeKey === 'purchased') {
-                    cost = selectedData.Price || 0;
-                    totalQuantity = item.Quantity || 0;
-                } else if (item.typeKey === 'production' || item.typeKey === 'transportation') {
-                    cost = selectedData['Unit Cost'] || 0;
-                    totalQuantity = item.Quantity || 0;
-                } else if (item.typeKey === 'installation') {
-                    cost = selectedData.Cost || 0;
-                    totalQuantity = item.Quantity || 0;
-                }
-            }
-
-            const finalCost = isForcedPrice ? item.forcedPrice : cost;
-            const subtotal = totalQuantity * finalCost;
-            
-            return { subtotal, calculatedWeight, price: finalCost };
-        };
-
-
-        // --- Custom Hooks ---
-
-        // Google Sheet 智能同步 Hook (重點修正 fetch 處理編碼)
-        const useDataSynchronization = () => {
-            const [data, setData] = useState({});
-            const [syncTime, setSyncTime] = useState(loadFromLocalStorage('syncTime', {}));
-            const [isLoading, setIsLoading] = useState(true);
-
-            useEffect(() => {
-                // 檢查 iconv-lite 是否載入
-                if (!window.iconv) {
-                    console.error("iconv-lite 函式庫未載入，無法處理中文編碼！請在 HTML 中加入 <script src='https://cdn.jsdelivr.net/npm/iconv-lite@0.6.3/lib/index.js'></script>");
-                    setIsLoading(false);
-                    return;
-                }
-                
-                const syncData = async () => {
-                    setIsLoading(true);
-                    const newData = {};
-                    const newSyncTime = { ...syncTime };
-                    let updated = false;
-
-                    for (const key of DATA_KEYS) {
-                        // 加上隨機時間戳以強制更新
-                        const url = `${BASE_CSV_URLS[key]}&t=${Date.now()}`; 
-                        const versionKey = `${key}_version`;
-                        const dataKey = `${key}_data`;
-                        
-                        const cachedData = loadFromLocalStorage(dataKey, []);
-                        const cachedVersion = localStorage.getItem(versionKey);
-
-                        try {
-                            const response = await fetch(url);
-                            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                            
-                            // 🚨 關鍵修正：將回應內容讀取為 ArrayBuffer (原始位元組)
-                            const buffer = await response.arrayBuffer();
-                            const unit8Arr = new Uint8Array(buffer);
-                            
-                            // 嘗試以中文 Big5 (常見於繁體中文 CSV) 解碼
-                            let csv = '';
-                            try {
-                                csv = iconv.decode(unit8Arr, 'big5');
-                                // 檢查是否仍有亂碼，如果亂碼嚴重，可能需要嘗試 gbk
-                                if (csv.includes('æ')) { // 簡單檢查 Big5 解碼後是否仍有常見亂碼字元
-                                    csv = iconv.decode(unit8Arr, 'gbk');
-                                }
-                            } catch (e) {
-                                // 如果 iconv 解碼失敗，嘗試預設的 UTF-8 (但不應出現亂碼問題)
-                                console.warn(`[編碼警告] iconv-lite 解碼失敗，嘗試使用 UTF-8。`);
-                                csv = new TextDecoder('utf-8').decode(unit8Arr);
-                            }
-
-                            const currentVersion = calculateVersion(csv);
-                            
-                            if (currentVersion === cachedVersion && cachedData.length > 0) {
-                                newData[key] = cachedData;
-                            } else {
-                                // 🚨 關鍵修正：將解碼後的 CSV 傳入修正後的解析函數
-                                const parsedData = csvToJson(csv, key); 
-                                newData[key] = parsedData;
-                                
-                                localStorage.setItem(dataKey, JSON.stringify(parsedData));
-                                localStorage.setItem(versionKey, currentVersion);
-                                newSyncTime[key] = new Date().toLocaleString();
-                                updated = true;
-                                if (parsedData.length === 0) {
-                                    console.warn(`[數據警告] ${CATEGORIES[key]} 載入成功，但內容為空 (0 筆資料)。請檢查 Sheet 內容。`);
-                                } else {
-                                     console.log(`[同步成功] ${CATEGORIES[key]} 載入 ${parsedData.length} 筆資料。`);
-                                }
-                            }
-                        } catch (error) {
-                            console.error(`[載入失敗] ${CATEGORIES[key]} 資料載入失敗，原因:`, error);
-                            // 若載入失敗，嘗試使用快取資料
-                            const cachedData = loadFromLocalStorage(`${key}_data`, []); // 重新從 localStorage 載入，防止快取版本判斷錯誤
-                            if (cachedData.length > 0) {
-                                newData[key] = cachedData;
-                                console.warn(`[使用快取] 載入失敗，使用快取資料 (${cachedData.length} 筆)。`);
-                            } else {
-                                newData[key] = [];
-                                console.error(`[嚴重警告] 無法從 API 或快取獲取 ${CATEGORIES[key]} 資料。`);
-                            }
-                        }
-                    }
-
-                    setData(newData);
-                    if (updated) {
-                        setSyncTime(newSyncTime);
-                        saveToLocalStorage('syncTime', newSyncTime);
-                    }
-                    setIsLoading(false);
-                };
-
-                syncData();
-            }, []);
-
-            return { data, syncTime, isLoading };
-        };
-
-        // --- 其餘程式碼未變動 (與之前提供的版本相同) ---
-        
-        // 多工程管理 Hook (未變動)
-        const useProjectManagement = () => {
-            const [projects, setProjects] = useState(() => loadFromLocalStorage('allProjects', DEFAULT_PROJECTS));
-            const [currentProjectName, setCurrentProjectName] = useState(() => {
-                const lastProject = localStorage.getItem('currentProjectName');
-                return projects[lastProject] ? lastProject : INITIAL_PROJECT_NAME;
-            });
-
-            useEffect(() => {
-                if (!projects[currentProjectName]) {
-                    const newName = Object.keys(projects)[0] || INITIAL_PROJECT_NAME;
-                    setCurrentProjectName(newName);
-                    localStorage.setItem('currentProjectName', newName);
-                }
-            }, [projects, currentProjectName]);
-
-            useEffect(() => {
-                saveToLocalStorage('allProjects', projects);
-            }, [projects]);
-            
-            useEffect(() => {
-                localStorage.setItem('currentProjectName', currentProjectName);
-            }, [currentProjectName]);
-
-
-            // 設置當前工程的資料
-            const updateCurrentProject = useCallback((updateFn) => {
-                setProjects(prevProjects => {
-                    const currentProject = prevProjects[currentProjectName];
-                    if (!currentProject) return prevProjects;
-
-                    const newProject = updateFn(currentProject);
-
-                    return {
-                        ...prevProjects,
-                        [currentProjectName]: newProject
-                    };
-                });
-            }, [currentProjectName]);
-
-            // 設置特定類別的手動調整值
-            const updateManualAdjust = useCallback((typeKey, value) => {
-                updateCurrentProject(proj => ({
-                    ...proj,
-                    manualAdjust: {
-                        ...proj.manualAdjust,
-                        [typeKey]: value
-                    }
-                }));
-            }, [updateCurrentProject]);
-
-
-            // 新增/刪除/切換工程
-            const addProject = useCallback((name) => {
-                if (!name || projects[name]) return false;
-                
-                const newProjects = {
-                    ...projects,
-                    [name]: { ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME] }
-                };
-                setProjects(newProjects);
-                setCurrentProjectName(name);
-                return true;
-            }, [projects]);
-
-            const deleteProject = useCallback((name) => {
-                if (Object.keys(projects).length === 1) return alert("至少需要保留一個工程！");
-                if (!confirm(`確定要刪除工程：${name} 嗎？此操作不可逆！`)) return;
-
-                const newProjects = { ...projects };
-                delete newProjects[name];
-                setProjects(newProjects);
-
-                if (currentProjectName === name) {
-                    const firstProjectName = Object.keys(newProjects)[0];
-                    setCurrentProjectName(firstProjectName);
-                }
-            }, [projects, currentProjectName]);
-            
-            const switchProject = useCallback((name) => {
-                if (projects[name]) {
-                    setCurrentProjectName(name);
-                }
-            }, [projects]);
-            
-            const currentProject = projects[currentProjectName] || { ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME] };
-            
-            return {
-                projects,
-                currentProjectName,
-                currentProject,
-                updateCurrentProject,
-                updateManualAdjust, 
-                addProject,
-                deleteProject,
-                switchProject
-            };
-        };
-
-
-        // --- Component Definitions ---
-
-        // 工程切換及管理 UI (未變動)
-        const ProjectSelector = ({ projects, currentProjectName, switchProject, addProject, deleteProject }) => {
-            const [newProjectName, setNewProjectName] = useState('');
-            const [showAdd, setShowAdd] = useState(false);
-
-            const handleAddProject = () => {
-                if (!newProjectName.trim()) {
-                    alert("工程名稱不能為空！");
-                    return;
-                }
-                if (addProject(newProjectName.trim())) {
-                    setNewProjectName('');
-                    setShowAdd(false);
-                } else {
-                    alert(`工程名稱 ${newProjectName.trim()} 已存在！`);
-                }
-            };
-            
-            return (
-                <div className="p-4 bg-gray-100 border-b border-gray-300 print-hidden">
-                    <h2 className="text-xl font-bold mb-3 flex items-center">
-                        <span className="mr-2">📁 工程管理:</span>
-                        <button 
-                            onClick={() => setShowAdd(!showAdd)}
-                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-sm transition duration-150"
-                        >
-                            {showAdd ? '取消' : '➕ 新增工程'}
-                        </button>
-                    </h2>
-                    
-                    {showAdd && (
-                        <div className="flex mb-3 space-x-2">
-                            <input
-                                type="text"
-                                value={newProjectName}
-                                onChange={(e) => setNewProjectName(e.target.value)}
-                                placeholder="輸入新工程名稱"
-                                className="border p-2 flex-grow rounded"
-                            />
-                            <button
-                                onClick={handleAddProject}
-                                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
-                            >
-                                確定新增
-                            </button>
-                        </div>
-                    )}
-
-                    <div className="flex flex-wrap gap-2">
-                        {Object.keys(projects).map(name => (
-                            <div key={name} className="flex items-center">
-                                <button
-                                    onClick={() => switchProject(name)}
-                                    className={`py-2 px-4 rounded transition duration-150 text-sm ${
-                                        name === currentProjectName 
-                                            ? 'bg-indigo-600 text-white font-semibold shadow-md' 
-                                            : 'bg-white text-gray-700 border border-gray-300 hover:bg-indigo-100'
-                                    }`}
-                                >
-                                    {name}
-                                </button>
-                                {Object.keys(projects).length > 1 && (
-                                    <button
-                                        onClick={() => deleteProject(name)}
-                                        className="ml-1 text-red-500 hover:text-red-700 text-lg font-bold p-1 leading-none"
-                                        title="刪除工程"
-                                    >
-                                        &times;
-                                    </button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        };
-
-        // 編輯/刪除模態框 (未變動)
-        const EditItemModal = ({ item, sheetData, onClose, onSave }) => {
-            const [quantity, setQuantity] = useState(item.Quantity || item.pcs || item.qty || item.len || item.L || 0);
-            const [forcedPrice, setForcedPrice] = useState(item.forcedPrice || 0);
-            
-            const originalPrice = useMemo(() => {
-                const { price } = calculateCostDetail({ ...item, Quantity: 1, pcs: 1, qty: 1, len: 1, L: 1, forcedPrice: 0 }, sheetData);
-                return price;
-            }, [item, sheetData]);
-            
-            const handleSave = () => {
-                const update = {
-                    Quantity: quantity,
-                    forcedPrice: parseFloat(forcedPrice) || undefined,
-                };
-
-                if (item.typeKey === 'materials') {
-                    if (item.Mode === '板材') {
-                        update.L = item.L;
-                        update.W = item.W;
-                        update.pcs = parseInt(quantity);
-                        delete update.Quantity;
-                    } else if (item.Mode === '型鋼') {
-                        update.len = item.len;
-                        update.qty = parseInt(quantity);
-                        delete update.Quantity;
-                    } else {
-                        update.Quantity = parseFloat(quantity);
-                    }
-                } else {
-                    update.Quantity = parseFloat(quantity);
-                }
-
-                onSave(item.id, update);
-                onClose();
-            };
-
-            const quantityLabel = useMemo(() => {
-                if (item.typeKey === 'materials') {
-                    if (item.Mode === '板材') return '片數 (pcs)';
-                    if (item.Mode === '型鋼') return '支數 (qty)';
-                }
-                return '數量';
-            }, [item]);
-            
-            return (
-                <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50">
-                    <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-                        <h3 className="text-xl font-bold mb-4">編輯明細項目</h3>
-                        <p className="mb-4 text-sm text-gray-700">項目: {item.Item || item.Category} {item.Mode ? `(${item.Mode} ${item.Spec || ''})` : ''}</p>
-                        
-                        <div className="mb-4">
-                            <label className="block text-gray-700 text-sm font-bold mb-2">{quantityLabel}</label>
-                            <input
-                                type="number"
-                                value={quantity}
-                                onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
-                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                                min="0" step="any"
-                            />
-                        </div>
-
-                        <div className="mb-6">
-                            <label className="block text-gray-700 text-sm font-bold mb-2">單價 (強制更動)</label>
-                            <p className="text-xs text-red-500 mb-1">原始單價: {originalPrice.toFixed(2)}</p>
-                            <input
-                                type="number"
-                                value={forcedPrice}
-                                onChange={(e) => setForcedPrice(e.target.value)}
-                                placeholder="輸入新的單價 (0 表示使用原始單價)"
-                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                                min="0" step="0.01"
-                            />
-                        </div>
-
-                        <div className="flex justify-end space-x-4">
-                            <button onClick={onClose} className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition duration-150">
-                                取消
-                            </button>
-                            <button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-800 text-white font-bold py-2 px-4 rounded transition duration-150">
-                                保存變更
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-
-        // 五大試算頁面基底組件 (包含手動調整欄位) (未變動)
-        const BaseSheet = ({ typeKey, data, currentProject, updateCurrentProject, updateManualAdjust }) => {
-            const [editingItem, setEditingItem] = useState(null);
-            
-            const { allItems } = currentProject;
-            const sheetItems = allItems.filter(item => item.typeKey === typeKey);
-            const sheetData = data[typeKey] || [];
-            
-            const categories = useMemo(() => {
-                const cats = [...new Set(sheetData.map(item => item.Category).filter(c => c))];
-                return cats.sort();
-            }, [sheetData]);
-
-            const handleChangeItem = (index, field, value) => {
-                updateCurrentProject(proj => {
-                    const newAllItems = [...proj.allItems];
-                    const itemIndex = newAllItems.findIndex(item => item.id === sheetItems[index].id);
-                    if (itemIndex > -1) {
-                        newAllItems[itemIndex] = { ...newAllItems[itemIndex], [field]: value };
-                    }
-                    return { ...proj, allItems: newAllItems };
-                });
-            };
-            
-            const handleSaveEdit = (id, updates) => {
-                 updateCurrentProject(proj => {
-                    const newAllItems = proj.allItems.map(item => 
-                        item.id === id ? { ...item, ...updates } : item
-                    );
-                    return { ...proj, allItems: newAllItems };
-                });
-            };
-
-            const handleDeleteItem = (id) => {
-                if (!confirm("確定要刪除此項目嗎？")) return;
-                updateCurrentProject(proj => ({
-                    ...proj,
-                    allItems: proj.allItems.filter(item => item.id !== id)
-                }));
-            };
-
-            const handleAddItem = (newItem) => {
-                updateCurrentProject(proj => ({
-                    ...proj,
-                    allItems: [...proj.allItems, { id: Date.now(), typeKey, ...newItem }]
-                }));
-            };
-
-            const renderInputs = (item, index) => {
-                if (typeKey === 'materials') {
-                    const isSheet = item.Mode === '板材';
-                    const isSteel = item.Mode === '型鋼';
-
-                    if (isSheet) {
-                        return (
-                            <>
-                                <input type="number" placeholder="L (m)" value={item.L || ''} onChange={(e) => handleChangeItem(index, 'L', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
-                                <input type="number" placeholder="W (m)" value={item.W || ''} onChange={(e) => handleChangeItem(index, 'W', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
-                                <input type="number" placeholder="pcs" value={item.pcs || ''} onChange={(e) => handleChangeItem(index, 'pcs', parseInt(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="1" />
-                            </>
-                        );
-                    } else if (isSteel) {
-                        return (
-                            <>
-                                <input type="number" placeholder="len (m)" value={item.len || ''} onChange={(e) => handleChangeItem(index, 'len', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
-                                <input type="number" placeholder="qty" value={item.qty || ''} onChange={(e) => handleChangeItem(index, 'qty', parseInt(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="1" />
-                            </>
-                        );
-                    }
-                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" />;
-                } 
-                else if (typeKey === 'purchased' || typeKey === 'production' || typeKey === 'transportation') {
-                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" />;
-                } 
-                else if (typeKey === 'installation') {
-                    const modes = [...new Set(sheetData.filter(d => d.Category === item.Category).map(d => d.Mode).filter(m => m))];
-                    const specs = [...new Set(sheetData.filter(d => d.Category === item.Category && d.Mode === item.Mode).map(d => d.Spec).filter(s => s))];
-                    
-                    return (
-                        <>
-                            <select value={item.Mode || ''} onChange={(e) => handleChangeItem(index, 'Mode', e.target.value)} className="p-1 border rounded w-24 text-sm">
-                                <option value="">選擇模式</option>
-                                {modes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
-                            </select>
-                            <select value={item.Spec || ''} onChange={(e) => handleChangeItem(index, 'Spec', e.target.value)} className="p-1 border rounded w-24 text-sm">
-                                <option value="">選擇規格</option>
-                                {specs.map(spec => <option key={spec} value={spec}>{spec}</option>)}
-                            </select>
-                            <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" disabled />
-                        </>
-                    );
-                }
-                
-                return null;
-            };
-
-            // 總計和總重量計算
-            const sheetTotals = useMemo(() => {
-                let totalSubtotal = 0;
-                let totalWeight = 0;
-                sheetItems.forEach(item => {
-                    const { subtotal, calculatedWeight } = calculateCostDetail(item, sheetData);
-                    totalSubtotal += subtotal;
-                    totalWeight += calculatedWeight;
-                });
-                return { totalSubtotal, totalWeight };
-            }, [sheetItems, sheetData]);
-            
-            const { totalSubtotal, totalWeight } = sheetTotals;
-            
-            // 處理手動調整輸入
-            const manualAdjustValue = currentProject.manualAdjust[typeKey] || 0;
-            const finalTotal = totalSubtotal + manualAdjustValue;
-
-            const handleAdjustChange = (e) => {
-                const value = parseFloat(e.target.value) || 0;
-                updateManualAdjust(typeKey, value);
-            };
-
-            // 渲染項目選擇器 (新增功能)
-            const AddItemForm = () => {
-                const [selectedCategory, setSelectedCategory] = useState('');
-                const [selectedItem, setSelectedItem] = useState('');
-                const [selectedMode, setSelectedMode] = useState('');
-                const [selectedSpec, setSelectedSpec] = useState('');
-
-                const filteredItems = useMemo(() => {
-                    const items = sheetData.filter(d => d.Category === selectedCategory);
-                    if (typeKey === 'installation') {
-                        return items.filter(d => d.Mode === selectedMode);
-                    }
-                    return items;
-                }, [selectedCategory, selectedMode, sheetData, typeKey]);
-
-                const modes = useMemo(() => {
-                    if (typeKey !== 'installation') return [];
-                    return [...new Set(sheetData.filter(d => d.Category === selectedCategory).map(d => d.Mode).filter(m => m))];
-                }, [selectedCategory, sheetData, typeKey]);
-                
-                const specs = useMemo(() => {
-                    if (typeKey !== 'installation') return [];
-                    return [...new Set(sheetData.filter(d => d.Category === selectedCategory && d.Mode === selectedMode).map(d => d.Spec).filter(s => s))];
-                }, [selectedCategory, selectedMode, sheetData, typeKey]);
-                
-                const handleCategoryChange = (e) => {
-                    setSelectedCategory(e.target.value);
-                    setSelectedItem('');
-                    setSelectedMode('');
-                    setSelectedSpec('');
-                };
-
-                const handleModeChange = (e) => {
-                    setSelectedMode(e.target.value);
-                    setSelectedItem('');
-                    setSelectedSpec('');
-                };
-                
-                const handleAdd = () => {
-                    if (typeKey === 'installation') {
-                        if (!selectedCategory || !selectedMode || !selectedSpec) {
-                            alert('請選擇完整的類別、模式和規格！');
-                            return;
-                        }
-                        handleAddItem({ 
-                            Category: selectedCategory, 
-                            Mode: selectedMode, 
-                            Spec: selectedSpec, 
-                            Quantity: 1 
-                        });
-                        setSelectedCategory('');
-                        setSelectedMode('');
-                        setSelectedSpec('');
-                        
-                    } else if (!selectedCategory || !selectedItem) {
-                        alert('請選擇完整的類別和品項！');
-                        return;
-                    } else {
-                        const selectedData = filteredItems.find(d => d.Item === selectedItem);
-                        const initialQuantity = typeKey === 'materials' && selectedData && selectedData.Mode === '板材' ? 1 : 1;
-                        handleAddItem({ 
-                            Category: selectedCategory, 
-                            Item: selectedItem, 
-                            Quantity: initialQuantity, 
-                            Mode: selectedData ? selectedData.Mode : undefined,
-                            L: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
-                            W: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
-                            pcs: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
-                            len: selectedData && selectedData.Mode === '型鋼' ? 1 : undefined,
-                            qty: selectedData && selectedData.Mode === '型鋼' ? 1 : undefined,
-                        });
-                        setSelectedCategory('');
-                        setSelectedItem('');
-                    }
-                };
-
-                return (
-                    <div className="flex flex-wrap items-center gap-2 p-3 bg-white border-t border-gray-200 print-hidden">
-                        <select value={selectedCategory} onChange={handleCategoryChange} className="p-2 border rounded">
-                            <option value="">選擇分類</option>
-                            {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                        </select>
-                        
-                        {typeKey === 'installation' && (
-                             <select value={selectedMode} onChange={handleModeChange} className="p-2 border rounded">
-                                <option value="">選擇模式(Mode)</option>
-                                {modes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
-                            </select>
-                        )}
-
-                        {(typeKey !== 'installation') && selectedCategory && (
-                            <select value={selectedItem} onChange={(e) => setSelectedItem(e.target.value)} className="p-2 border rounded">
-                                <option value="">選擇品項</option>
-                                {filteredItems.map(item => <option key={item.Item} value={item.Item}>{item.Item}</option>)}
-                            </select>
-                        )}
-                        
-                        {typeKey === 'installation' && selectedCategory && selectedMode && (
-                            <select value={selectedSpec} onChange={(e) => setSelectedSpec(e.target.value)} className="p-2 border rounded">
-                                <option value="">選擇規格(Spec)</option>
-                                {specs.map(spec => <option key={spec} value={spec}>{spec}</option>)}
-                            </select>
-                        )}
-
-                        <button onClick={handleAdd} className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150" disabled={
-                            typeKey === 'installation' ? (!selectedSpec) : (!selectedItem)
-                        }>
-                            新增項目
-                        </button>
-                    </div>
-                );
-            };
-
-            return (
-                <div className="mb-6 border border-gray-200 rounded-lg shadow-md overflow-hidden">
-                    <h3 className="bg-gray-800 text-white text-lg font-semibold p-3">{CATEGORIES[typeKey]}</h3>
-                    
-                    <div className="p-4 overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead>
-                                <tr className="bg-gray-100 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    <th className="px-3 py-3">類別</th>
-                                    <th className="px-3 py-3">{typeKey === 'installation' ? '模式/品項' : '品項'}</th>
-                                    {typeKey === 'installation' && <th className="px-3 py-3">規格</th>}
-                                    <th className="px-3 py-3 text-right">單價</th>
-                                    <th className="px-3 py-3">{typeKey === 'materials' ? '長寬/數量' : '數量'}</th>
-                                    {typeKey === 'materials' && <th className="px-3 py-3 text-right">面積/重量</th>}
-                                    <th className="px-3 py-3 text-right">小計 (TWD)</th>
-                                    <th className="px-3 py-3 text-center print-hidden">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200 text-sm">
-                                {sheetItems.map((item, index) => {
-                                    const { subtotal, calculatedWeight, price } = calculateCostDetail(item, sheetData);
-                                    
-                                    return (
-                                        <tr key={item.id} className="hover:bg-gray-50">
-                                            <td className="px-3 py-4 whitespace-nowrap">{item.Category}</td>
-                                            <td className="px-3 py-4 whitespace-nowrap">{item.Item || item.Mode}</td>
-                                            {typeKey === 'installation' && <td className="px-3 py-4 whitespace-nowrap">{item.Spec}</td>}
-                                            <td className="px-3 py-4 whitespace-nowrap text-right">
-                                                {price.toFixed(2)}
-                                                {item.forcedPrice > 0 && <span className="text-red-500 ml-1 text-xs">(F)</span>}
-                                            </td>
-                                            <td className="px-3 py-4 whitespace-nowrap flex space-x-1">
-                                                {renderInputs(item, index)}
-                                            </td>
-                                            {typeKey === 'materials' && (
-                                                <td className="px-3 py-4 whitespace-nowrap text-right text-xs">
-                                                    {item.Mode === '板材' ? `Area: ${(item.L * item.W * item.pcs || 0).toFixed(2)} m²` : ''}
-                                                    {item.Mode === '型鋼' ? `Length: ${(item.len * item.qty || 0).toFixed(2)} m` : ''}
-                                                    {(item.Mode === '板材' || item.Mode === '型鋼') ? <><br/>{`Weight: ${calculatedWeight.toFixed(2)} kg`}</> : ''}
-                                                    {item.Mode !== '板材' && item.Mode !== '型鋼' && `Qty: ${item.Quantity || 0}`}
-                                                </td>
-                                            )}
-                                            <td className="px-3 py-4 whitespace-nowrap text-right font-semibold text-indigo-600">
-                                                {subtotal.toFixed(2)}
-                                            </td>
-                                            <td className="px-3 py-4 whitespace-nowrap text-center space-x-2 print-hidden">
-                                                <button 
-                                                    onClick={() => setEditingItem(item)}
-                                                    className="text-blue-600 hover:text-blue-800 font-medium text-sm"
-                                                    title="編輯數量或強制單價"
-                                                >
-                                                    編輯
-                                                </button>
-                                                <button 
-                                                    onClick={() => handleDeleteItem(item.id)} 
-                                                    className="text-red-600 hover:text-red-900 font-medium text-sm"
-                                                    title="刪除項目"
-                                                >
-                                                    刪除
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                                {sheetItems.length === 0 && (
-                                    <tr>
-                                        <td colSpan={typeKey === 'installation' ? 8 : 7} className="px-6 py-4 text-center text-gray-500">
-                                            此工程目前沒有 {CATEGORIES[typeKey]} 項目。
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <AddItemForm />
-
-                    {/* 總計區塊增加手動調整 */}
-                    <div className="bg-gray-100 p-3 text-right text-lg font-bold border-t border-gray-200 flex justify-end items-center space-x-4">
-                        <div className="flex items-center space-x-2 print-hidden">
-                             <span className="text-gray-800 text-base font-medium">手動調整 (±):</span>
-                            <input
-                                type="number"
-                                value={manualAdjustValue}
-                                onChange={handleAdjustChange}
-                                className="w-24 text-right p-1 border rounded text-sm font-normal"
-                                step="1"
-                            />
-                        </div>
-                        <span className="text-gray-800">{CATEGORIES[typeKey]} 總計 (含調整):</span>
-                        <span className="text-red-600">
-                            {finalTotal.toFixed(2)} TWD
-                            {typeKey === 'materials' && (
-                                <span className="text-sm text-gray-600 ml-3"> (總重: {totalWeight.toFixed(2)} kg)</span>
-                            )}
-                        </span>
-                        
-                         {/* 列印時顯示調整值 */}
-                         <span className="hidden print-content text-sm text-gray-600">
-                             (調整值: {manualAdjustValue.toFixed(2)} TWD)
-                        </span>
-                    </div>
-
-                    {editingItem && (
-                        <EditItemModal 
-                            item={editingItem}
-                            sheetData={sheetData}
-                            onClose={() => setEditingItem(null)}
-                            onSave={handleSaveEdit}
-                        />
-                    )}
-                </div>
-            );
-        };
-        
-        // SummaryPage (總表 + 圓餅圖) (未變動)
-        const SummaryPage = ({ projects, currentProjectName, updateCurrentProject, sheetData, handleExportToExcel, handlePrint }) => {
-            const currentProject = projects[currentProjectName];
-            const allItems = currentProject.allItems;
-            const chartRef = useRef(null);
-
-            // 計算五大類別總和 (包含各自的手動調整)
-            const categoryTotals = useMemo(() => {
-                const totals = { materials: 0, purchased: 0, production: 0, transportation: 0, installation: 0 };
-                
-                allItems.forEach(item => {
-                    const sheetItems = sheetData[item.typeKey] || [];
-                    const { subtotal } = calculateCostDetail(item, sheetItems);
-                    totals[item.typeKey] += subtotal;
-                });
-                
-                // 加上各類別的手動調整
-                ALL_ADJUST_KEYS.forEach(key => {
-                    totals[key] += currentProject.manualAdjust[key] || 0;
-                });
-
-                return totals;
-            }, [allItems, sheetData, currentProject.manualAdjust]);
-            
-            // 計算總和
-            const totalSum = useMemo(() => {
-                return Object.values(categoryTotals).reduce((sum, total) => sum + total, 0);
-            }, [categoryTotals]);
-
-            // 底部加總優化: 管銷/報價計算
-            const baseCost = totalSum; // 基礎成本現在已經包含所有的細項調整
-            const adminFee = baseCost * currentProject.adminFeeRate;
-            const finalCostWithAdmin = baseCost + adminFee;
-            
-            const suggestedQuote = currentProject.profitRate < 1 ? 
-                finalCostWithAdmin / (1 - currentProject.profitRate) : 
-                finalCostWithAdmin;
-                
-
-            // 管銷費用修改
-            const handleAdminFeeChange = (e) => {
-                const value = parseFloat(e.target.value) || 0;
-                updateCurrentProject(proj => ({
-                    ...proj,
-                    adminFeeRate: value / 100
-                }));
-            };
-            
-            // 建議報價毛利率修改
-            const handleProfitRateChange = (e) => {
-                const value = parseFloat(e.target.value) || 0;
-                updateCurrentProject(proj => ({
-                    ...proj,
-                    profitRate: value / 100
-                }));
-            };
-
-
-            // 圓餅圖渲染
-            useEffect(() => {
-                const ctx = document.getElementById('costPieChart');
-                if (!ctx) return;
-                
-                if (chartRef.current) {
-                    chartRef.current.destroy();
-                }
-
-                const labels = ALL_ADJUST_KEYS.map(key => CATEGORIES[key]);
-                const dataValues = ALL_ADJUST_KEYS.map(key => parseFloat(categoryTotals[key].toFixed(2)));
-                
-                const backgroundColors = [
-                    '#4F46E5', '#06B6D4', '#F59E0B', '#10B981', '#EF4444', 
-                ];
-                
-                const data = {
-                    labels: labels,
-                    datasets: [{
-                        data: dataValues,
-                        backgroundColor: backgroundColors,
-                        hoverOffset: 4
-                    }]
-                };
-                
-                const config = {
-                    type: 'pie',
-                    data: data,
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'top',
-                            },
-                            title: {
-                                display: true,
-                                text: `工程成本分佈 - ${currentProjectName}`,
-                                font: { size: 16 }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        let label = context.label || '';
-                                        if (label) {
-                                            label += ': ';
-                                        }
-                                        const value = context.parsed;
-                                        const percentage = ((value / totalSum) * 100).toFixed(1) + '%';
-                                        return `${label} ${value.toLocaleString()} TWD (${percentage})`;
-                                    }
-                                }
-                            },
-                            datalabels: {
-                                color: '#fff',
-                                formatter: (value, context) => {
-                                    const percentage = ((value / totalSum) * 100).toFixed(1) + '%';
-                                    return percentage;
-                                }
-                            }
-                        }
-                    },
-                    plugins: [ChartDataLabels]
-                };
-                
-                chartRef.current = new Chart(ctx, config);
-
-                return () => {
-                    if (chartRef.current) {
-                        chartRef.current.destroy();
-                    }
-                };
-            }, [categoryTotals, currentProjectName, totalSum]);
-
-
-            return (
-                <div className="p-6 bg-white rounded-lg shadow-2xl print-content">
-                    <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b-4 border-indigo-600 pb-2 flex justify-between items-center">
-                        <span>💰 成本總覽 - {currentProjectName}</span>
-                        {/* 拆分按鈕 */}
-                        <div className="space-x-2 print-hidden">
-                            <button
-                                onClick={() => handlePrint()}
-                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-150 text-sm"
-                            >
-                                🖨️ 列印報表
-                            </button>
-                            <button
-                                onClick={() => handleExportToExcel(currentProjectName, categoryTotals, currentProject, finalCostWithAdmin, suggestedQuote, sheetData)}
-                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 text-sm"
-                            >
-                                📑 輸出 Excel
-                            </button>
-                        </div>
-                    </h2>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        {/* 總表 */}
-                        <div className="print-content">
-                            <h3 className="text-2xl font-semibold text-gray-800 mb-4">成本結算明細 (含各項手動調整)</h3>
-                            <div className="border border-gray-300 rounded-lg overflow-hidden">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">類別</th>
-                                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider print-hidden">手動調整值</th>
-                                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">金額 (TWD)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {ALL_ADJUST_KEYS.map((key) => (
-                                            <tr key={key}>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{CATEGORIES[key]}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right print-hidden">
-                                                    {currentProject.manualAdjust[key].toFixed(2).toLocaleString()}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                                                    {categoryTotals[key].toFixed(2).toLocaleString()}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {/* 基礎成本總計 (包含所有細項調整) */}
-                                        <tr className="bg-indigo-50 font-bold">
-                                            <td className="px-6 py-4 whitespace-nowrap text-base text-indigo-800">基礎成本總計</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-base text-indigo-800 text-right print-hidden">-</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-base text-indigo-800 text-right">
-                                                {baseCost.toFixed(2).toLocaleString()}
-                                            </td>
-                                        </tr>
-                                        {/* 管銷費用 */}
-                                        <tr>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center print-hidden">
-                                                管銷費用
-                                                <input
-                                                    type="number"
-                                                    value={(currentProject.adminFeeRate * 100).toFixed(0)}
-                                                    onChange={handleAdminFeeChange}
-                                                    className="w-16 text-right p-1 border rounded ml-2 text-sm"
-                                                    step="1" min="0" max="100"
-                                                />
-                                                <span className="ml-1 text-xs">%</span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-500 text-right print-hidden">-</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-500 text-right">
-                                                +{adminFee.toFixed(2).toLocaleString()}
-                                            </td>
-                                        </tr>
-                                        {/* 最終總成本 */}
-                                        <tr className="bg-red-100 font-extrabold">
-                                            <td className="px-6 py-4 whitespace-nowrap text-xl text-red-800">最終總成本 (含管銷)</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-xl text-red-800 text-right print-hidden">-</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-xl text-red-800 text-right">
-                                                {finalCostWithAdmin.toFixed(2).toLocaleString()} TWD
-                                            </td>
-                                        </tr>
-                                        {/* 建議報價 */}
-                                        <tr className="bg-indigo-600 text-white font-extrabold">
-                                            <td className="px-6 py-4 whitespace-nowrap text-xl print-hidden">
-                                                建議報價 (毛利率: 
-                                                <input
-                                                    type="number"
-                                                    value={(currentProject.profitRate * 100).toFixed(0)}
-                                                    onChange={handleProfitRateChange}
-                                                    className="w-12 text-right p-1 border rounded ml-1 text-sm text-gray-800"
-                                                    step="1" min="0" max="99"
-                                                />
-                                                %)
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-xl text-white text-right print-hidden">-</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-xl text-white text-right">
-                                                {suggestedQuote.toFixed(2).toLocaleString()} TWD
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* 圓餅圖 */}
-                        <div className="print-hidden"> 
-                            <h3 className="text-2xl font-semibold text-gray-800 mb-4">成本分佈圓餅圖</h3>
-                            <div className="chart-container bg-gray-50 p-4 rounded-lg shadow-inner">
-                                <canvas id="costPieChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div className="mt-8 pt-4 border-t border-gray-300 text-sm text-gray-600 print-hidden">
-                        * 所有數據皆以 **{currentProjectName}** 工程的資料為準。
-                    </div>
-                </div>
-            );
-        };
-        
-        // 輸出 Excel 函式 (未變動)
-        const handleExportToExcel = (projectName, categoryTotals, projectData, finalCostWithAdmin, suggestedQuote, allData) => {
-            if (!window.XLSX) {
-                alert("XLSX 函式庫未載入！請檢查網路連線。");
-                return;
-            }
-
-            const wb = XLSX.utils.book_new();
-            const baseCostSum = Object.values(categoryTotals).reduce((s, v) => s + v, 0);
-
-            // 1. 輸出成本總覽頁 (Summary Sheet)
-            const summaryData = [
-                ["工程名稱:", projectName],
-                ["", ""],
-                ["成本項目", "手動調整值", "總金額 (TWD)"],
-                ...ALL_ADJUST_KEYS.map(key => [
-                    CATEGORIES[key], 
-                    projectData.manualAdjust[key].toFixed(2), 
-                    categoryTotals[key].toFixed(2)
-                ]),
-                ["", "", ""],
-                ["基礎成本總計", "", baseCostSum.toFixed(2)],
-                ["", "", ""],
-                ["管銷費用 (" + (projectData.adminFeeRate * 100).toFixed(0) + "%)", "", (finalCostWithAdmin - baseCostSum).toFixed(2)],
-                ["最終總成本 (含管銷)", "", finalCostWithAdmin.toFixed(2)],
-                ["", "", ""],
-                ["建議報價 (毛利率 " + (projectData.profitRate * 100).toFixed(0) + "%)", "", suggestedQuote.toFixed(2)],
-            ];
-            const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-            XLSX.utils.book_append_sheet(wb, wsSummary, "成本總覽");
-
-            // 2. 輸出每個明細頁 (Detail Sheets)
-            DATA_KEYS.forEach(typeKey => {
-                const sheetItems = projectData.allItems.filter(item => item.typeKey === typeKey);
-                const sheetData = allData[typeKey] || [];
-                const sheetName = CATEGORIES[typeKey].split(' ')[1];
-
-                const detailHeader = [
-                    "類別",
-                    (typeKey === 'installation' ? '模式/品項' : '品項'),
-                    ...(typeKey === 'installation' ? ['規格'] : []),
-                    "數量單位",
-                    "數量",
-                    "單價 (TWD)",
-                    "是否強制單價",
-                    ...(typeKey === 'materials' ? ['長/寬 (L/W)', 'pcs/qty', '總重 (kg)'] : []),
-                    "小計 (TWD)"
-                ];
-
-                const detailRows = sheetItems.map(item => {
-                    const { subtotal, calculatedWeight, price } = calculateCostDetail(item, sheetData);
-                    
-                    let quantityValue = item.Quantity || 0;
-                    let quantityUnit = "單位";
-                    let sizeInfo = '';
-                    let weightInfo = '';
-
-                    if (typeKey === 'materials') {
-                        if (item.Mode === '板材') {
-                            quantityUnit = 'm²/pcs';
-                            quantityValue = (item.L * item.W * item.pcs || 0).toFixed(2);
-                            sizeInfo = `${item.L || 0} / ${item.W || 0}`;
-                            weightInfo = calculatedWeight.toFixed(2);
-                        } else if (item.Mode === '型鋼') {
-                            quantityUnit = 'm/qty';
-                            quantityValue = (item.len * item.qty || 0).toFixed(2);
-                            sizeInfo = `len: ${item.len || 0}`;
-                            weightInfo = calculatedWeight.toFixed(2);
-                        } else {
-                            quantityUnit = '單位';
-                            sizeInfo = '';
-                            weightInfo = '';
-                        }
-                    }
-
-                    const baseRow = [
-                        item.Category,
-                        item.Item || item.Mode,
-                        ...(typeKey === 'installation' ? [item.Spec || ''] : []),
-                        quantityUnit,
-                        quantityValue,
-                        price.toFixed(2),
-                        item.forcedPrice > 0 ? "是" : "否",
-                    ];
-
-                    if (typeKey === 'materials') {
-                        return [...baseRow, sizeInfo, item.pcs || item.qty || 0, weightInfo, subtotal.toFixed(2)];
-                    }
-
-                    return [...baseRow, subtotal.toFixed(2)];
-                });
-                
-                // 計算細項總和 (不含手動調整)
-                const totalSubtotal = detailRows.reduce((sum, row) => {
-                    const lastValue = row[row.length - 1];
-                    return sum + (parseFloat(lastValue) || 0);
-                }, 0);
-                
-                // 獲取手動調整值
-                const manualAdjustValue = projectData.manualAdjust[typeKey] || 0;
-                const finalCategoryTotal = totalSubtotal + manualAdjustValue;
-
-                const finalRows = [
-                    detailHeader,
-                    ...detailRows,
-                    ["", "", "", "", "", "", "", ""],
-                    ...typeKey === 'materials' ? [
-                         ["總重:", "", "", "", "", "", "", "", "", sheetItems.reduce((sum, item) => sum + calculateCostDetail(item, sheetData).calculatedWeight, 0), ""],
-                    ] : [],
-                    ["試算總計 (不含調整):", "", "", "", "", "", "", "", totalSubtotal.toFixed(2)],
-                    ["手動調整值:", manualAdjustValue.toFixed(2), "", "", "", "", "", "", ""],
-                    ["總計 (含調整):", "", "", "", "", "", "", "", finalCategoryTotal.toFixed(2)]
-                ];
-
-                const wsDetail = XLSX.utils.aoa_to_sheet(finalRows);
-                XLSX.utils.book_append_sheet(wb, wsDetail, sheetName);
-            });
-
-            // 輸出檔案
-            try {
-                XLSX.writeFile(wb, `${projectName}_成本報表_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '')}.xlsx`);
-            } catch (error) {
-                console.error("Excel 輸出失敗:", error);
-                alert("Excel 輸出失敗！請檢查瀏覽器權限或檔案名稱。");
-            }
-        };
-
-        // 列印報表函式 (未變動)
-        const handlePrint = () => {
-             // 隱藏圖表
-             const chartCanvas = document.getElementById('costPieChart');
-             if (chartCanvas) {
-                chartCanvas.style.display = 'none';
-             }
-
-            // 使用瀏覽器原生列印功能
-            window.print();
-            
-             // 列印完成後恢復圖表顯示
-             if (chartCanvas) {
-                chartCanvas.style.display = 'block';
-             }
-        };
-
-
-        // --- Main App Component ---
-
-        const App = () => {
-            const TABS_ORDER = [
-                'materials', 'purchased', 'production', 'transportation', 'installation', 'summary'
-            ];
-            
-            const [activeTab, setActiveTab] = useState('summary');
-            const { data: sheetData, syncTime, isLoading } = useDataSynchronization();
-            const { 
-                projects, currentProjectName, currentProject, 
-                updateCurrentProject, updateManualAdjust, addProject, deleteProject, switchProject 
-            } = useProjectManagement();
-
-            const renderContent = () => {
-                if (isLoading) {
-                    return <div className="text-center p-10 text-xl text-indigo-600">載入 Google Sheet 資料中...</div>;
-                }
-                
-                if (activeTab === 'summary') {
-                    return <SummaryPage 
-                                projects={projects} 
-                                currentProjectName={currentProjectName} 
-                                updateCurrentProject={updateCurrentProject} 
-                                sheetData={sheetData} 
-                                handleExportToExcel={handleExportToExcel}
-                                handlePrint={handlePrint} 
-                            />;
-                }
-                
-                const typeKey = activeTab;
-                if (!DATA_KEYS.includes(typeKey)) return <div className="text-center p-10 text-xl text-red-500">分頁錯誤</div>;
-
-                return <BaseSheet 
-                            typeKey={typeKey} 
-                            data={sheetData} 
-                            currentProject={currentProject} 
-                            updateCurrentProject={updateCurrentProject}
-                            updateManualAdjust={updateManualAdjust}
-                        />;
-            };
-            
-            const tabs = TABS_ORDER.map(key => ({
-                key,
-                label: key === 'summary' ? '📊 成本總覽' : CATEGORIES[key]
-            }));
-            
-            return (
-                <div className="min-h-screen bg-gray-50 flex flex-col">
-                    <header className="print-hidden">
-                        <ProjectSelector 
-                            projects={projects} 
-                            currentProjectName={currentProjectName} 
-                            switchProject={switchProject} 
-                            addProject={addProject} 
-                            deleteProject={deleteProject} 
-                        />
-                        
-                        {/* Tab Navigation */}
-                        <nav className="bg-white shadow sticky top-0 z-10 border-b border-gray-200">
-                            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                                <div className="flex justify-between h-16">
-                                    <div className="flex">
-                                        {tabs.map(tab => (
-                                            <button
-                                                key={tab.key}
-                                                onClick={() => setActiveTab(tab.key)}
-                                                className={`
-                                                    inline-flex items-center px-1 pt-1 border-b-4 text-sm font-medium transition duration-150 ease-in-out
-                                                    ${activeTab === tab.key 
-                                                        ? 'border-indigo-500 text-indigo-600 font-bold' 
-                                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                                                    }
-                                                `}
-                                            >
-                                                {tab.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </nav>
-                    </header>
-                    
-                    <main className="flex-grow max-w-7xl mx-auto py-6 sm:px-6 lg:px-8 w-full">
-                        {renderContent()}
-                    </main>
-
-                    {/* Footer / Sync Info & CSV URLs */}
-                    <footer className="bg-gray-100 border-t border-gray-200 mt-auto p-4 text-xs text-gray-600 print-hidden">
-                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                            <h3 className="font-bold text-sm text-gray-700 mb-2">Google Sheet 資料庫資訊:</h3>
-                            <div className="flex flex-wrap mb-2">
-                                <p className="font-semibold text-gray-700 mr-4">ℹ️ 資料同步狀態 (模式 C):</p>
-                                <ul className="flex flex-wrap gap-x-4">
-                                    {DATA_KEYS.map(key => (
-                                        <li key={key}>
-                                            <span className="font-medium text-gray-700">{CATEGORIES[key].split(' ')[1]}:</span> 
-                                            {syncTime[key] ? ` 最後同步於 ${syncTime[key]}` : ' 尚未同步'}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                            
-                            <div className="mt-3">
-                                <p className="font-semibold text-gray-700 mb-1">🔗 資料庫 CSV 連結路徑 (URL):</p>
-                                <ul className="space-y-1">
-                                    {DATA_KEYS.map(key => (
-                                        <li key={`url-${key}`} className="break-all">
-                                            <span className="font-medium text-indigo-600">{CATEGORIES[key]}:</span> 
-                                            <a href={BASE_CSV_URLS[key]} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-1">
-                                                {BASE_CSV_URLS[key]}
-                                            </a>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        </div>
-                    </footer>
-                </div>
-            );
-        };
-
-        // 渲染應用程式
-        createRoot(document.getElementById('root')).render(<App />);
-    </script>
+        const { createRoot } = ReactDOM;
+
+        // 2️⃣ 五大 Google Sheet 資料庫 CSV 連結 (已使用您提供的連結)
+        const BASE_CSV_URLS = {
+            materials: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=0&single=true&output=csv",
+            purchased: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1300343145&single=true&output=csv",
+            production: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1755952578&single=true&output=csv",
+            transportation: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=11669107&single=true&output=csv",
+            installation: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=183776968&single=true&output=csv",
+        };
+
+        const DATA_KEYS = Object.keys(BASE_CSV_URLS);
+        const CATEGORIES = {
+            materials: '🧱 材料成本',
+            purchased: '🛒 市購品',
+            production: '🏭 製作成本',
+            transportation: '🚚 運輸費用',
+            installation: '🔧 現場安裝',
+            summary: '總成本',
+        };
+        const ALL_ADJUST_KEYS = ['materials', 'purchased', 'production', 'transportation', 'installation'];
+
+
+        // 預設工程結構
+        const DEFAULT_PROJECTS = {
+            "主工程": { 
+                allItems: [], 
+                manualAdjust: {
+                    materials: 0,
+                    purchased: 0,
+                    production: 0,
+                    transportation: 0,
+                    installation: 0,
+                }, 
+                adminFeeRate: 0.15, // 管銷預設 15%
+                profitRate: 0.35 // 毛利率預設 35%
+            }
+        };
+        const INITIAL_PROJECT_NAME = "主工程";
+
+        // --- Utility Functions ---
+        
+        // 修正後的 CSV 轉 JSON 函數 (處理中文編碼和分隔符)
+        const csvToJson = (csv, key) => {
+            // 處理 Windows/Mac 換行符，並移除空白行
+            const lines = csv.split(/[\r\n]+/).filter(line => line.trim() !== '');
+            if (lines.length === 0) return [];
+            
+            // 嘗試解析標頭 (第一行)
+            // 使用更寬鬆的匹配，避免雙引號內部的逗號造成問題
+            const headerLine = lines[0];
+            const header = headerLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+                                     .map(h => h.trim().replace(/^"|"$/g, ''));
+            
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const currentLine = lines[i];
+                // 使用同樣的正規表達式解析內容
+                const currentCols = currentLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+                                              .map(col => col.trim().replace(/^"|"$/g, ''));
+                                              
+                if (currentCols.length < header.length) continue; // 確保欄位數符合標頭
+                
+                const item = {};
+                for (let j = 0; j < header.length; j++) {
+                    item[header[j]] = currentCols[j];
+                }
+
+                const processedItem = {};
+                Object.keys(item).forEach(k => {
+                    const value = item[k];
+                    if (value === undefined || value === null || value === '') return;
+
+                    let processedValue = value;
+                    if (['Price', 'Density', 'Unit Cost', 'Cost'].includes(k) || (key === 'materials' && k.endsWith(' Cost'))) {
+                        processedValue = parseFloat(value) || 0;
+                    }
+
+                    processedItem[k] = processedValue;
+                });
+
+                if (Object.keys(processedItem).length > 0) {
+                    data.push(processedItem);
+                }
+            }
+
+            return data;
+        };
+
+        // 計算 Google Sheet Version
+        const calculateVersion = (csv) => {
+            const lines = csv.split('\n').filter(line => line.trim() !== '');
+            if (lines.length === 0) return 'v0';
+            
+            const rowCount = lines.length;
+            const firstLine = lines[0].trim();
+            const lastLine = lines[lines.length - 1].trim();
+
+            return `${rowCount}-${firstLine.length}-${lastLine.length}`;
+        };
+
+        // 自動保存到 localStorage
+        const saveToLocalStorage = (key, data) => {
+            try {
+                localStorage.setItem(key, JSON.stringify(data));
+            } catch (error) {
+                console.error("Error saving to localStorage:", error);
+            }
+        };
+
+        // 從 localStorage 讀取
+        const loadFromLocalStorage = (key, defaultValue) => {
+            try {
+                const storedValue = localStorage.getItem(key);
+                if (key === 'allProjects' && storedValue) {
+                    const storedProjects = JSON.parse(storedValue);
+                    const mergedProjects = {};
+                    Object.keys(storedProjects).forEach(projName => {
+                        mergedProjects[projName] = {
+                            ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME],
+                            ...storedProjects[projName],
+                            // 確保 manualAdjust 是物件且包含所有細項
+                            manualAdjust: {
+                                ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME].manualAdjust,
+                                ...(storedProjects[projName].manualAdjust || {})
+                            }
+                        };
+                    });
+                    return mergedProjects;
+                }
+                
+                return storedValue ? JSON.parse(storedValue) : defaultValue;
+            } catch (error) {
+                console.error("Error loading from localStorage:", error);
+                return defaultValue;
+            }
+        };
+
+        // 成本計算邏輯 (此處省略，保持不變)
+        const calculateCostDetail = (item, sheetData) => {
+            const isForcedPrice = typeof item.forcedPrice === 'number' && item.forcedPrice > 0;
+
+            const selectedData = sheetData.find(d => 
+                d.Category === item.Category && 
+                ((item.typeKey === 'materials' && d.Item === item.Item) || 
+                 (item.typeKey === 'purchased' && d.Item === item.Item) ||
+                 (item.typeKey === 'production' && d.Item === item.Item) ||
+                 (item.typeKey === 'transportation' && d.Item === item.Item) ||
+                 (item.typeKey === 'installation' && d.Mode === item.Mode && d.Spec === item.Spec)
+                )
+            );
+
+            let cost = 0;
+            let totalQuantity = 0;
+            let calculatedWeight = 0;
+
+            if (selectedData) {
+                if (item.typeKey === 'materials') {
+                    cost = selectedData.Price || 0;
+                    
+                    if (item.Mode === '板材') {
+                        const area = (item.L || 0) * (item.W || 0);
+                        // 修正：如果 Density 為 0，則避免 NaN
+                        calculatedWeight = (selectedData.Density || 0) * (item.L || 0) * (item.W || 0) * (item.pcs || 0);
+                        totalQuantity = area * (item.pcs || 0);
+                    } else if (item.Mode === '型鋼') {
+                        calculatedWeight = (selectedData.Density || 0) * (item.len || 0) * (item.qty || 0);
+                        totalQuantity = calculatedWeight;
+                    } else {
+                        totalQuantity = item.Quantity || 0;
+                    }
+
+                } else if (item.typeKey === 'purchased') {
+                    cost = selectedData.Price || 0;
+                    totalQuantity = item.Quantity || 0;
+                } else if (item.typeKey === 'production' || item.typeKey === 'transportation') {
+                    cost = selectedData['Unit Cost'] || 0;
+                    totalQuantity = item.Quantity || 0;
+                } else if (item.typeKey === 'installation') {
+                    cost = selectedData.Cost || 0;
+                    totalQuantity = item.Quantity || 0;
+                }
+            }
+
+            const finalCost = isForcedPrice ? item.forcedPrice : cost;
+            const subtotal = totalQuantity * finalCost;
+            
+            return { subtotal, calculatedWeight, price: finalCost };
+        };
+
+
+        // --- Custom Hooks ---
+
+        // Google Sheet 智能同步 Hook (已移除錯誤檢查)
+        const useDataSynchronization = () => {
+            const [data, setData] = useState({});
+            const [syncTime, setSyncTime] = useState(loadFromLocalStorage('syncTime', {}));
+            const [isLoading, setIsLoading] = useState(true);
+
+            useEffect(() => {
+                
+                // 🚨 修正步驟 2：移除對 window.iconv 的錯誤檢查，直接執行同步邏輯
+                const syncData = async () => {
+                    setIsLoading(true);
+                    const newData = {};
+                    const newSyncTime = { ...syncTime };
+                    let updated = false;
+
+                    for (const key of DATA_KEYS) {
+                        // 加上隨機時間戳以強制更新
+                        const url = `${BASE_CSV_URLS[key]}&t=${Date.now()}`; 
+                        const versionKey = `${key}_version`;
+                        const dataKey = `${key}_data`;
+                        
+                        const cachedData = loadFromLocalStorage(dataKey, []);
+                        const cachedVersion = localStorage.getItem(versionKey);
+
+                        try {
+                            const response = await fetch(url);
+                            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                            
+                            // 🚨 關鍵修正：將回應內容讀取為 ArrayBuffer (原始位元組)
+                            const buffer = await response.arrayBuffer();
+                            const unit8Arr = new Uint8Array(buffer);
+                            
+                            // 嘗試以中文 Big5 (常見於繁體中文 CSV) 解碼
+                            let csv = '';
+                            try {
+                                csv = iconv.decode(unit8Arr, 'big5');
+                                // 檢查是否仍有亂碼，如果亂碼嚴重，可能需要嘗試 gbk
+                                if (csv.includes('æ')) { // 簡單檢查 Big5 解碼後是否仍有常見亂碼字元
+                                    csv = iconv.decode(unit8Arr, 'gbk');
+                                }
+                            } catch (e) {
+                                // 如果 iconv 解碼失敗，嘗試預設的 UTF-8 (但不應出現亂碼問題)
+                                console.warn(`[編碼警告] iconv-lite 解碼失敗，嘗試使用 UTF-8。`);
+                                csv = new TextDecoder('utf-8').decode(unit8Arr);
+                            }
+
+                            const currentVersion = calculateVersion(csv);
+                            
+                            if (currentVersion === cachedVersion && cachedData.length > 0) {
+                                newData[key] = cachedData;
+                            } else {
+                                // 🚨 關鍵修正：將解碼後的 CSV 傳入修正後的解析函數
+                                const parsedData = csvToJson(csv, key); 
+                                newData[key] = parsedData;
+                                
+                                localStorage.setItem(dataKey, JSON.stringify(parsedData));
+                                localStorage.setItem(versionKey, currentVersion);
+                                newSyncTime[key] = new Date().toLocaleString();
+                                updated = true;
+                                if (parsedData.length === 0) {
+                                    console.warn(`[數據警告] ${CATEGORIES[key]} 載入成功，但內容為空 (0 筆資料)。請檢查 Sheet 內容。`);
+                                } else {
+                                     console.log(`[同步成功] ${CATEGORIES[key]} 載入 ${parsedData.length} 筆資料。`);
+                                }
+                            }
+                        } catch (error) {
+                            console.error(`[載入失敗] ${CATEGORIES[key]} 資料載入失敗，原因:`, error);
+                            // 若載入失敗，嘗試使用快取資料
+                            const cachedData = loadFromLocalStorage(`${key}_data`, []); // 重新從 localStorage 載入，防止快取版本判斷錯誤
+                            if (cachedData.length > 0) {
+                                newData[key] = cachedData;
+                                console.warn(`[使用快取] 載入失敗，使用快取資料 (${cachedData.length} 筆)。`);
+                            } else {
+                                newData[key] = [];
+                                console.error(`[嚴重警告] 無法從 API 或快取獲取 ${CATEGORIES[key]} 資料。`);
+                            }
+                        }
+                    }
+
+                    setData(newData);
+                    if (updated) {
+                        setSyncTime(newSyncTime);
+                        saveToLocalStorage('syncTime', newSyncTime);
+                    }
+                    setIsLoading(false);
+                };
+
+                syncData();
+            }, []);
+
+            return { data, syncTime, isLoading };
+        };
+
+        // 多工程管理 Hook (未變動)
+        const useProjectManagement = () => {
+            const [projects, setProjects] = useState(() => loadFromLocalStorage('allProjects', DEFAULT_PROJECTS));
+            const [currentProjectName, setCurrentProjectName] = useState(() => {
+                const lastProject = localStorage.getItem('currentProjectName');
+                return projects[lastProject] ? lastProject : INITIAL_PROJECT_NAME;
+            });
+
+            useEffect(() => {
+                if (!projects[currentProjectName]) {
+                    const newName = Object.keys(projects)[0] || INITIAL_PROJECT_NAME;
+                    setCurrentProjectName(newName);
+                    localStorage.setItem('currentProjectName', newName);
+                }
+            }, [projects, currentProjectName]);
+
+            useEffect(() => {
+                saveToLocalStorage('allProjects', projects);
+            }, [projects]);
+            
+            useEffect(() => {
+                localStorage.setItem('currentProjectName', currentProjectName);
+            }, [currentProjectName]);
+
+
+            // 設置當前工程的資料
+            const updateCurrentProject = useCallback((updateFn) => {
+                setProjects(prevProjects => {
+                    const currentProject = prevProjects[currentProjectName];
+                    if (!currentProject) return prevProjects;
+
+                    const newProject = updateFn(currentProject);
+
+                    return {
+                        ...prevProjects,
+                        [currentProjectName]: newProject
+                    };
+                });
+            }, [currentProjectName]);
+
+            // 設置特定類別的手動調整值
+            const updateManualAdjust = useCallback((typeKey, value) => {
+                updateCurrentProject(proj => ({
+                    ...proj,
+                    manualAdjust: {
+                        ...proj.manualAdjust,
+                        [typeKey]: value
+                    }
+                }));
+            }, [updateCurrentProject]);
+
+
+            // 新增/刪除/切換工程
+            const addProject = useCallback((name) => {
+                if (!name || projects[name]) return false;
+                
+                const newProjects = {
+                    ...projects,
+                    [name]: { ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME] }
+                };
+                setProjects(newProjects);
+                setCurrentProjectName(name);
+                return true;
+            }, [projects]);
+
+            const deleteProject = useCallback((name) => {
+                if (Object.keys(projects).length === 1) return alert("至少需要保留一個工程！");
+                if (!confirm(`確定要刪除工程：${name} 嗎？此操作不可逆！`)) return;
+
+                const newProjects = { ...projects };
+                delete newProjects[name];
+                setProjects(newProjects);
+
+                if (currentProjectName === name) {
+                    const firstProjectName = Object.keys(newProjects)[0];
+                    setCurrentProjectName(firstProjectName);
+                }
+            }, [projects, currentProjectName]);
+            
+            const switchProject = useCallback((name) => {
+                if (projects[name]) {
+                    setCurrentProjectName(name);
+                }
+            }, [projects]);
+            
+            const currentProject = projects[currentProjectName] || { ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME] };
+            
+            return {
+                projects,
+                currentProjectName,
+                currentProject,
+                updateCurrentProject,
+                updateManualAdjust, 
+                addProject,
+                deleteProject,
+                switchProject
+            };
+        };
+
+
+        // --- Component Definitions ---
+
+        // 工程切換及管理 UI (未變動)
+        const ProjectSelector = ({ projects, currentProjectName, switchProject, addProject, deleteProject }) => {
+            const [newProjectName, setNewProjectName] = useState('');
+            const [showAdd, setShowAdd] = useState(false);
+
+            const handleAddProject = () => {
+                if (!newProjectName.trim()) {
+                    alert("工程名稱不能為空！");
+                    return;
+                }
+                if (addProject(newProjectName.trim())) {
+                    setNewProjectName('');
+                    setShowAdd(false);
+                } else {
+                    alert(`工程名稱 ${newProjectName.trim()} 已存在！`);
+                }
+            };
+            
+            return (
+                <div className="p-4 bg-gray-100 border-b border-gray-300 print-hidden">
+                    <h2 className="text-xl font-bold mb-3 flex items-center">
+                        <span className="mr-2">📁 工程管理:</span>
+                        <button 
+                            onClick={() => setShowAdd(!showAdd)}
+                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-sm transition duration-150"
+                        >
+                            {showAdd ? '取消' : '➕ 新增工程'}
+                        </button>
+                    </h2>
+                    
+                    {showAdd && (
+                        <div className="flex mb-3 space-x-2">
+                            <input
+                                type="text"
+                                value={newProjectName}
+                                onChange={(e) => setNewProjectName(e.target.value)}
+                                placeholder="輸入新工程名稱"
+                                className="border p-2 flex-grow rounded"
+                            />
+                            <button
+                                onClick={handleAddProject}
+                                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+                            >
+                                確定新增
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                        {Object.keys(projects).map(name => (
+                            <div key={name} className="flex items-center">
+                                <button
+                                    onClick={() => switchProject(name)}
+                                    className={`py-2 px-4 rounded transition duration-150 text-sm ${
+                                        name === currentProjectName 
+                                            ? 'bg-indigo-600 text-white font-semibold shadow-md' 
+                                            : 'bg-white text-gray-700 border border-gray-300 hover:bg-indigo-100'
+                                    }`}
+                                >
+                                    {name}
+                                </button>
+                                {Object.keys(projects).length > 1 && (
+                                    <button
+                                        onClick={() => deleteProject(name)}
+                                        className="ml-1 text-red-500 hover:text-red-700 text-lg font-bold p-1 leading-none"
+                                        title="刪除工程"
+                                    >
+                                        &times;
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // 編輯/刪除模態框 (未變動)
+        const EditItemModal = ({ item, sheetData, onClose, onSave }) => {
+            const [quantity, setQuantity] = useState(item.Quantity || item.pcs || item.qty || item.len || item.L || 0);
+            const [forcedPrice, setForcedPrice] = useState(item.forcedPrice || 0);
+            
+            const originalPrice = useMemo(() => {
+                const { price } = calculateCostDetail({ ...item, Quantity: 1, pcs: 1, qty: 1, len: 1, L: 1, forcedPrice: 0 }, sheetData);
+                return price;
+            }, [item, sheetData]);
+            
+            const handleSave = () => {
+                const update = {
+                    Quantity: quantity,
+                    forcedPrice: parseFloat(forcedPrice) || undefined,
+                };
+
+                if (item.typeKey === 'materials') {
+                    if (item.Mode === '板材') {
+                        update.L = item.L;
+                        update.W = item.W;
+                        update.pcs = parseInt(quantity);
+                        delete update.Quantity;
+                    } else if (item.Mode === '型鋼') {
+                        update.len = item.len;
+                        update.qty = parseInt(quantity);
+                        delete update.Quantity;
+                    } else {
+                        update.Quantity = parseFloat(quantity);
+                    }
+                } else {
+                    update.Quantity = parseFloat(quantity);
+                }
+
+                onSave(item.id, update);
+                onClose();
+            };
+
+            const quantityLabel = useMemo(() => {
+                if (item.typeKey === 'materials') {
+                    if (item.Mode === '板材') return '片數 (pcs)';
+                    if (item.Mode === '型鋼') return '支數 (qty)';
+                }
+                return '數量';
+            }, [item]);
+            
+            return (
+                <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg shadow-xl w-96">
+                        <h3 className="text-xl font-bold mb-4">編輯明細項目</h3>
+                        <p className="mb-4 text-sm text-gray-700">項目: {item.Item || item.Category} {item.Mode ? `(${item.Mode} ${item.Spec || ''})` : ''}</p>
+                        
+                        <div className="mb-4">
+                            <label className="block text-gray-700 text-sm font-bold mb-2">{quantityLabel}</label>
+                            <input
+                                type="number"
+                                value={quantity}
+                                onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
+                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                min="0" step="any"
+                            />
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-gray-700 text-sm font-bold mb-2">單價 (強制更動)</label>
+                            <p className="text-xs text-red-500 mb-1">原始單價: {originalPrice.toFixed(2)}</p>
+                            <input
+                                type="number"
+                                value={forcedPrice}
+                                onChange={(e) => setForcedPrice(e.target.value)}
+                                placeholder="輸入新的單價 (0 表示使用原始單價)"
+                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                min="0" step="0.01"
+                            />
+                        </div>
+
+                        <div className="flex justify-end space-x-4">
+                            <button onClick={onClose} className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition duration-150">
+                                取消
+                            </button>
+                            <button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-800 text-white font-bold py-2 px-4 rounded transition duration-150">
+                                保存變更
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+
+        // 五大試算頁面基底組件 (包含手動調整欄位) (未變動)
+        const BaseSheet = ({ typeKey, data, currentProject, updateCurrentProject, updateManualAdjust }) => {
+            const [editingItem, setEditingItem] = useState(null);
+            
+            const { allItems } = currentProject;
+            const sheetItems = allItems.filter(item => item.typeKey === typeKey);
+            const sheetData = data[typeKey] || [];
+            
+            const categories = useMemo(() => {
+                const cats = [...new Set(sheetData.map(item => item.Category).filter(c => c))];
+                return cats.sort();
+            }, [sheetData]);
+
+            const handleChangeItem = (index, field, value) => {
+                updateCurrentProject(proj => {
+                    const newAllItems = [...proj.allItems];
+                    const itemIndex = newAllItems.findIndex(item => item.id === sheetItems[index].id);
+                    if (itemIndex > -1) {
+                        newAllItems[itemIndex] = { ...newAllItems[itemIndex], [field]: value };
+                    }
+                    return { ...proj, allItems: newAllItems };
+                });
+            };
+            
+            const handleSaveEdit = (id, updates) => {
+                 updateCurrentProject(proj => {
+                    const newAllItems = proj.allItems.map(item => 
+                        item.id === id ? { ...item, ...updates } : item
+                    );
+                    return { ...proj, allItems: newAllItems };
+                });
+            };
+
+            const handleDeleteItem = (id) => {
+                if (!confirm("確定要刪除此項目嗎？")) return;
+                updateCurrentProject(proj => ({
+                    ...proj,
+                    allItems: proj.allItems.filter(item => item.id !== id)
+                }));
+            };
+
+            const handleAddItem = (newItem) => {
+                updateCurrentProject(proj => ({
+                    ...proj,
+                    allItems: [...proj.allItems, { id: Date.now(), typeKey, ...newItem }]
+                }));
+            };
+
+            const renderInputs = (item, index) => {
+                if (typeKey === 'materials') {
+                    const isSheet = item.Mode === '板材';
+                    const isSteel = item.Mode === '型鋼';
+
+                    if (isSheet) {
+                        return (
+                            <>
+                                <input type="number" placeholder="L (m)" value={item.L || ''} onChange={(e) => handleChangeItem(index, 'L', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
+                                <input type="number" placeholder="W (m)" value={item.W || ''} onChange={(e) => handleChangeItem(index, 'W', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
+                                <input type="number" placeholder="pcs" value={item.pcs || ''} onChange={(e) => handleChangeItem(index, 'pcs', parseInt(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="1" />
+                            </>
+                        );
+                    } else if (isSteel) {
+                        return (
+                            <>
+                                <input type="number" placeholder="len (m)" value={item.len || ''} onChange={(e) => handleChangeItem(index, 'len', parseFloat(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="0" step="0.01" />
+                                <input type="number" placeholder="qty" value={item.qty || ''} onChange={(e) => handleChangeItem(index, 'qty', parseInt(e.target.value) || 0)} className="w-16 p-1 border rounded text-right" min="1" />
+                            </>
+                        );
+                    }
+                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" />;
+                } 
+                else if (typeKey === 'purchased' || typeKey === 'production' || typeKey === 'transportation') {
+                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" />;
+                } 
+                else if (typeKey === 'installation') {
+                    return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" />;
+                }
+                return <span className="text-gray-500">N/A</span>;
+            };
+
+            const totalCost = sheetItems.reduce((sum, item) => {
+                const { subtotal } = calculateCostDetail(item, sheetData);
+                return sum + subtotal;
+            }, 0);
+            
+            const manualAdjust = currentProject.manualAdjust[typeKey] || 0;
+            const finalTotal = totalCost + manualAdjust;
+            
+
+            return (
+                <div className="p-4 sm:p-6 bg-white flex-grow">
+                    <h3 className="text-2xl font-bold mb-4 text-indigo-700">{CATEGORIES[typeKey]} (工程: {currentProjectName})</h3>
+                    <AddDataForm typeKey={typeKey} sheetData={sheetData} categories={categories} onAddItem={handleAddItem} />
+
+                    <div className="mt-6 border rounded-lg shadow-md overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">類別</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">項目/規格</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">數量/尺寸</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">單價</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">小計</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider print-hidden">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {sheetItems.map((item, index) => {
+                                    const { subtotal, price } = calculateCostDetail(item, sheetData);
+                                    const quantityDisplay = (() => {
+                                        if (item.Mode === '板材') return `${(item.L || 0).toFixed(2)}m x ${(item.W || 0).toFixed(2)}m x ${item.pcs || 0}pcs`;
+                                        if (item.Mode === '型鋼') return `${(item.len || 0).toFixed(2)}m x ${item.qty || 0}qty`;
+                                        return (item.Quantity || 0).toFixed(2);
+                                    })();
+                                    
+                                    return (
+                                        <tr key={item.id} className={item.forcedPrice > 0 ? 'bg-yellow-50' : ''}>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{index + 1}</td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500">{item.Category}</td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900">
+                                                **{item.Item || item.Mode}**
+                                                {item.Spec && <span className="text-xs text-gray-500 block">{item.Spec}</span>}
+                                            </td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900 text-right font-mono">
+                                                {quantityDisplay}
+                                            </td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900 text-right">
+                                                {price.toFixed(2)} {item.forcedPrice > 0 ? ' (強)' : ''}
+                                            </td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm font-bold text-indigo-600 text-right">{subtotal.toLocaleString('zh-TW')}</td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-right text-sm font-medium print-hidden">
+                                                <button onClick={() => setEditingItem(item)} className="text-indigo-600 hover:text-indigo-900 mr-2">編輯</button>
+                                                <button onClick={() => handleDeleteItem(item.id)} className="text-red-600 hover:text-red-900">刪除</button>
+                                            </td>
+                                        </tr>
+                                );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="mt-6 p-4 bg-gray-50 rounded-lg shadow-inner">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-lg font-semibold text-gray-700">自動計算總成本:</span>
+                            <span className="text-xl font-bold text-indigo-700">{totalCost.toLocaleString('zh-TW')} NTD</span>
+                        </div>
+                        <div className="flex justify-between items-center mb-4 border-t pt-2">
+                            <label className="text-lg font-semibold text-gray-700">手動調整 (±)</label>
+                            <input
+                                type="number"
+                                value={manualAdjust}
+                                onChange={(e) => updateManualAdjust(typeKey, parseFloat(e.target.value) || 0)}
+                                className="w-40 p-2 border rounded text-right text-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                step="100"
+                            />
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t border-indigo-200">
+                            <span className="text-xl font-bold text-indigo-900">該類別最終總成本:</span>
+                            <span className="text-2xl font-extrabold text-red-600">{finalTotal.toLocaleString('zh-TW')} NTD</span>
+                        </div>
+                    </div>
+                    
+                    {editingItem && (
+                        <EditItemModal
+                            item={editingItem}
+                            sheetData={sheetData}
+                            onClose={() => setEditingItem(null)}
+                            onSave={handleSaveEdit}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // 新增資料表單組件 (未變動)
+        const AddDataForm = ({ typeKey, sheetData, categories, onAddItem }) => {
+            const [selectedCategory, setSelectedCategory] = useState(categories[0] || '');
+            const [selectedItem, setSelectedItem] = useState('');
+            const [selectedMode, setSelectedMode] = useState('');
+            const [selectedSpec, setSelectedSpec] = useState('');
+            const [quantity, setQuantity] = useState(1);
+            const [dimensions, setDimensions] = useState({ L: 0, W: 0, len: 0, pcs: 1, qty: 1 });
+            
+            const filteredItems = useMemo(() => {
+                const items = [...new Set(sheetData
+                    .filter(item => item.Category === selectedCategory)
+                    .map(item => item.Item || item.Mode)
+                    .filter(i => i))];
+                return items.sort();
+            }, [sheetData, selectedCategory]);
+
+            const filteredModes = useMemo(() => {
+                if (typeKey === 'installation') {
+                    return [...new Set(sheetData
+                        .filter(item => item.Category === selectedCategory)
+                        .map(item => item.Mode)
+                        .filter(m => m))]
+                        .sort();
+                }
+                return [];
+            }, [sheetData, selectedCategory, typeKey]);
+            
+            const filteredSpecs = useMemo(() => {
+                if (typeKey === 'installation') {
+                    return [...new Set(sheetData
+                        .filter(item => item.Category === selectedCategory && item.Mode === selectedMode)
+                        .map(item => item.Spec)
+                        .filter(s => s))]
+                        .sort();
+                }
+                return [];
+            }, [sheetData, selectedCategory, selectedMode, typeKey]);
+
+
+            useEffect(() => {
+                setSelectedItem(filteredItems[0] || '');
+            }, [selectedCategory, filteredItems]);
+            
+            useEffect(() => {
+                setSelectedMode(filteredModes[0] || '');
+            }, [selectedCategory, filteredModes]);
+            
+            useEffect(() => {
+                setSelectedSpec(filteredSpecs[0] || '');
+            }, [selectedMode, filteredSpecs]);
+
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!selectedCategory || (!selectedItem && typeKey !== 'installation') || (!selectedMode && typeKey === 'installation') || (!selectedSpec && typeKey === 'installation')) {
+                    alert("請選擇所有必填項目。");
+                    return;
+                }
+
+                const newItem = { Category: selectedCategory };
+                
+                if (typeKey === 'materials') {
+                    newItem.Item = selectedItem;
+                    // 檢查材料類型以決定存儲方式
+                    const selectedType = sheetData.find(d => d.Category === selectedCategory && d.Item === selectedItem);
+                    const mode = selectedType?.Mode || '';
+                    newItem.Mode = mode;
+
+                    if (mode === '板材') {
+                        newItem.L = dimensions.L;
+                        newItem.W = dimensions.W;
+                        newItem.pcs = dimensions.pcs;
+                    } else if (mode === '型鋼') {
+                        newItem.len = dimensions.len;
+                        newItem.qty = dimensions.qty;
+                    } else {
+                        newItem.Quantity = quantity;
+                    }
+                } else if (typeKey === 'installation') {
+                    newItem.Mode = selectedMode;
+                    newItem.Spec = selectedSpec;
+                    newItem.Quantity = quantity;
+                } else {
+                    newItem.Item = selectedItem;
+                    newItem.Quantity = quantity;
+                }
+
+                onAddItem(newItem);
+                setQuantity(1); // Reset Quantity after adding
+            };
+
+            const renderItemSelector = () => {
+                if (typeKey === 'installation') {
+                    return (
+                        <>
+                            <div className="flex-1 min-w-[150px]">
+                                <label className="block text-sm font-medium text-gray-700">模式/工種</label>
+                                <select value={selectedMode} onChange={(e) => setSelectedMode(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                    {filteredModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex-1 min-w-[150px]">
+                                <label className="block text-sm font-medium text-gray-700">規格</label>
+                                <select value={selectedSpec} onChange={(e) => setSelectedSpec(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                    {filteredSpecs.map(spec => <option key={spec} value={spec}>{spec}</option>)}
+                                </select>
+                            </div>
+                        </>
+                    );
+                } else {
+                    return (
+                        <div className="flex-1 min-w-[150px]">
+                            <label className="block text-sm font-medium text-gray-700">項目</label>
+                            <select value={selectedItem} onChange={(e) => setSelectedItem(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                {filteredItems.map(item => <option key={item} value={item}>{item}</option>)}
+                            </select>
+                        </div>
+                    );
+                }
+            };
+
+            const renderQuantityInput = () => {
+                if (typeKey === 'materials' && selectedItem) {
+                    const selectedType = sheetData.find(d => d.Category === selectedCategory && d.Item === selectedItem);
+                    const mode = selectedType?.Mode || '';
+
+                    if (mode === '板材') {
+                        return (
+                            <div className="flex space-x-2 flex-grow min-w-[200px] items-end">
+                                <div className='flex-1'>
+                                    <label className="block text-sm font-medium text-gray-700">長度 L (m)</label>
+                                    <input type="number" value={dimensions.L} onChange={(e) => setDimensions({...dimensions, L: parseFloat(e.target.value) || 0})} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" min="0" step="0.01" />
+                                </div>
+                                <div className='flex-1'>
+                                    <label className="block text-sm font-medium text-gray-700">寬度 W (m)</label>
+                                    <input type="number" value={dimensions.W} onChange={(e) => setDimensions({...dimensions, W: parseFloat(e.target.value) || 0})} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" min="0" step="0.01" />
+                                </div>
+                                <div className='w-20'>
+                                    <label className="block text-sm font-medium text-gray-700">片數 (pcs)</label>
+                                    <input type="number" value={dimensions.pcs} onChange={(e) => setDimensions({...dimensions, pcs: parseInt(e.target.value) || 1})} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" min="1" />
+                                </div>
+                            </div>
+                        );
+                    } else if (mode === '型鋼') {
+                        return (
+                            <div className="flex space-x-2 flex-grow min-w-[200px] items-end">
+                                <div className='flex-1'>
+                                    <label className="block text-sm font-medium text-gray-700">長度 len (m)</label>
+                                    <input type="number" value={dimensions.len} onChange={(e) => setDimensions({...dimensions, len: parseFloat(e.target.value) || 0})} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" min="0" step="0.01" />
+                                </div>
+                                <div className='w-20'>
+                                    <label className="block text-sm font-medium text-gray-700">支數 (qty)</label>
+                                    <input type="number" value={dimensions.qty} onChange={(e) => setDimensions({...dimensions, qty: parseInt(e.target.value) || 1})} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" min="1" />
+                                </div>
+                            </div>
+                        );
+                    }
+                }
+
+                return (
+                    <div className="flex-1 min-w-[150px]">
+                        <label className="block text-sm font-medium text-gray-700">數量</label>
+                        <input
+                            type="number"
+                            value={quantity}
+                            onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"
+                            min="0" step="any"
+                        />
+                    </div>
+                );
+            };
+            
+            return (
+                <form onSubmit={handleSubmit} className="p-4 border border-indigo-200 bg-indigo-50 rounded-lg print-hidden">
+                    <h4 className="text-lg font-bold mb-3 text-indigo-800">新增項目</h4>
+                    <div className="flex flex-wrap gap-4 items-end">
+                        <div className="flex-1 min-w-[150px]">
+                            <label className="block text-sm font-medium text-gray-700">類別</label>
+                            <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                {categories.map(category => <option key={category} value={category}>{category}</option>)}
+                            </select>
+                        </div>
+                        
+                        {renderItemSelector()}
+                        {renderQuantityInput()}
+                        
+                        <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md shadow-sm hover:bg-indigo-700 transition duration-150 flex-grow-0 h-[42px]">
+                            ➕ 新增
+                        </button>
+                    </div>
+                </form>
+            );
+        };
+
+
+        // 成本圖表組件 (未變動)
+        const CostChart = ({ projects, currentProjectName, calculateProjectCosts }) => {
+            const chartRef = useRef(null);
+            const chartInstanceRef = useRef(null);
+
+            const project = projects[currentProjectName];
+            const { costs, grandTotal } = calculateProjectCosts(project);
+
+            const chartData = useMemo(() => {
+                const labels = DATA_KEYS.map(key => CATEGORIES[key]);
+                const dataValues = DATA_KEYS.map(key => costs[key].finalTotal);
+                const backgroundColors = ['#f87171', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa']; // Red, Amber, Green, Blue, Purple
+                
+                return {
+                    labels,
+                    datasets: [{
+                        data: dataValues,
+                        backgroundColor: backgroundColors,
+                        hoverOffset: 4
+                    }]
+                };
+            }, [costs]);
+
+            useEffect(() => {
+                if (chartRef.current) {
+                    // 銷毀舊的實例
+                    if (chartInstanceRef.current) {
+                        chartInstanceRef.current.destroy();
+                    }
+
+                    const ctx = chartRef.current.getContext('2d');
+                    Chart.register(ChartDataLabels);
+
+                    chartInstanceRef.current = new Chart(ctx, {
+                        type: 'pie',
+                        data: chartData,
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'top',
+                                },
+                                title: {
+                                    display: true,
+                                    text: `${currentProjectName} - 總成本比例分析: ${grandTotal.toLocaleString('zh-TW')} NTD`,
+                                    font: {
+                                        size: 16
+                                    }
+                                },
+                                datalabels: {
+                                    formatter: (value, context) => {
+                                        const sum = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = (value / sum) * 100;
+                                        return `${value.toLocaleString('zh-TW')}\n(${percentage.toFixed(1)}%)`;
+                                    },
+                                    color: '#000',
+                                    font: {
+                                        weight: 'bold',
+                                        size: 12
+                                    },
+                                    anchor: 'end',
+                                    align: 'end',
+                                }
+                            }
+                        }
+                    });
+                }
+            }, [chartData, currentProjectName, grandTotal]);
+
+            return (
+                <div className="p-4 sm:p-6 bg-white flex-grow">
+                    <div className="chart-container">
+                        <canvas ref={chartRef}></canvas>
+                    </div>
+                </div>
+            );
+        };
+
+
+        // 報價頁面組件 (未變動)
+        const QuoteSheet = ({ projects, currentProjectName, updateCurrentProject, calculateProjectCosts }) => {
+            const project = projects[currentProjectName];
+            const { costs, grandTotal } = calculateProjectCosts(project);
+            
+            const handleRateChange = (field, value) => {
+                updateCurrentProject(proj => ({
+                    ...proj,
+                    [field]: parseFloat(value) || 0
+                }));
+            };
+
+            const adminFee = grandTotal * project.adminFeeRate;
+            const subtotalWithFee = grandTotal + adminFee;
+            const profit = subtotalWithFee * project.profitRate;
+            const finalQuote = subtotalWithFee + profit;
+            const totalCostRatio = grandTotal / finalQuote;
+            
+            const costDetails = DATA_KEYS.map(key => ({
+                name: CATEGORIES[key],
+                calculated: costs[key].totalCost,
+                adjusted: costs[key].finalTotal,
+            }));
+
+
+            return (
+                <div className="p-4 sm:p-8 bg-white flex-grow">
+                    <h3 className="text-3xl font-bold mb-6 text-green-700">📋 {currentProjectName} - 報價分析</h3>
+
+                    {/* 報價設定區塊 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 border border-blue-200 bg-blue-50 rounded-lg shadow-md mb-8 print-hidden">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">管銷費用費率 (Admin Fee Rate):</label>
+                            <div className="mt-1 flex rounded-md shadow-sm">
+                                <input
+                                    type="number"
+                                    value={project.adminFeeRate * 100}
+                                    onChange={(e) => handleRateChange('adminFeeRate', e.target.value / 100)}
+                                    className="flex-1 block w-full rounded-l-md border-gray-300 p-2 text-right"
+                                    min="0" step="1"
+                                />
+                                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">%</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">毛利率費率 (Profit Rate):</label>
+                            <div className="mt-1 flex rounded-md shadow-sm">
+                                <input
+                                    type="number"
+                                    value={project.profitRate * 100}
+                                    onChange={(e) => handleRateChange('profitRate', e.target.value / 100)}
+                                    className="flex-1 block w-full rounded-l-md border-gray-300 p-2 text-right"
+                                    min="0" step="1"
+                                />
+                                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 總成本細節表格 */}
+                    <h4 className="text-xl font-bold mb-3 text-gray-800">成本結構明細 (已含手動調整)</h4>
+                    <div className="overflow-x-auto shadow border-b border-gray-200 sm:rounded-lg mb-8">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">成本類別</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">計算總額 (NTD)</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">手動調整 (±)</th>
+                                    <th className="px-6 py-3 text-right text-xs font-bold text-indigo-700 uppercase tracking-wider">最終成本總計</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {costDetails.map(detail => (
+                                    <tr key={detail.name}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{detail.name}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">{detail.calculated.toLocaleString('zh-TW')}</td>
+                                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right ${detail.adjusted - detail.calculated !== 0 ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
+                                            {(detail.adjusted - detail.calculated).toLocaleString('zh-TW')}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-base font-bold text-indigo-700 text-right">{detail.adjusted.toLocaleString('zh-TW')}</td>
+                                    </tr>
+                                ))}
+                                {/* 總成本列 */}
+                                <tr className="bg-indigo-50 border-t-2 border-indigo-400">
+                                    <td className="px-6 py-4 whitespace-nowrap text-lg font-extrabold text-indigo-900">總成本 (Grand Total)</td>
+                                    <td colSpan="2" className="px-6 py-4 whitespace-nowrap text-lg font-extrabold text-red-600 text-right">
+                                            --
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-2xl font-extrabold text-red-600 text-right">{grandTotal.toLocaleString('zh-TW')} NTD</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {/* 最終報價計算 */}
+                    <div className="p-6 bg-green-50 border-2 border-green-300 rounded-xl shadow-2xl">
+                        <h4 className="text-2xl font-bold mb-4 text-green-800">💰 最終報價結果 (Final Quotation)</h4>
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center text-lg">
+                                <span className="font-medium text-gray-700">總成本 (Grand Total)</span>
+                                <span className="font-bold text-red-600">{grandTotal.toLocaleString('zh-TW')} NTD</span>
+                            </div>
+                            <div className="flex justify-between items-center text-lg border-t pt-2">
+                                <span className="font-medium text-gray-700">管銷費用 ({project.adminFeeRate * 100}%)</span>
+                                <span className="font-bold text-blue-600">{adminFee.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} NTD</span>
+                            </div>
+                            <div className="flex justify-between items-center text-lg border-y py-2">
+                                <span className="font-medium text-gray-700">毛利 ({project.profitRate * 100}%)</span>
+                                <span className="font-bold text-orange-600">{profit.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} NTD</span>
+                            </div>
+                            <div className="flex justify-between items-center pt-3">
+                                <span className="text-xl font-extrabold text-green-900">最終報價金額:</span>
+                                <span className="text-3xl font-extrabold text-green-700">{finalQuote.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} NTD</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+
+        // 資料同步狀態組件 (未變動)
+        const SyncStatus = ({ syncTime, isLoading }) => {
+            const allSynced = DATA_KEYS.every(key => syncTime[key]);
+            const statusText = isLoading ? '同步中...' : (allSynced ? '全部同步成功' : '部分資料使用快取');
+            const statusClass = isLoading ? 'bg-yellow-500' : (allSynced ? 'bg-green-500' : 'bg-orange-500');
+
+            return (
+                <div className={`p-3 text-white font-semibold flex justify-between items-center transition duration-300 ${statusClass} print-hidden`}>
+                    <span>🌐 數據狀態: {statusText}</span>
+                    <div className="flex space-x-4 text-xs">
+                        {DATA_KEYS.map(key => (
+                            <span key={key} className="hidden sm:inline">
+                                {CATEGORIES[key]}: {syncTime[key] ? '✅' : '❌'}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+
+        // 應用程式主體
+        const App = () => {
+            const { data, syncTime, isLoading } = useDataSynchronization();
+            const { projects, currentProjectName, currentProject, updateCurrentProject, updateManualAdjust, addProject, deleteProject, switchProject } = useProjectManagement();
+            const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || 'summary');
+            
+            useEffect(() => {
+                localStorage.setItem('activeTab', activeTab);
+            }, [activeTab]);
+
+
+            // 計算單一專案的所有成本 (總成木計算邏輯，未變動)
+            const calculateProjectCosts = (project) => {
+                const costDetails = {};
+                let grandTotal = 0;
+
+                DATA_KEYS.forEach(typeKey => {
+                    const typeItems = project.allItems.filter(item => item.typeKey === typeKey);
+                    const totalCost = typeItems.reduce((sum, item) => {
+                        const sheetData = data[typeKey] || [];
+                        const { subtotal } = calculateCostDetail(item, sheetData);
+                        return sum + subtotal;
+                    }, 0);
+
+                    const manualAdjust = project.manualAdjust[typeKey] || 0;
+                    const finalTotal = totalCost + manualAdjust;
+                    
+                    costDetails[typeKey] = { totalCost, manualAdjust, finalTotal };
+                    grandTotal += finalTotal;
+                });
+
+                return { costs: costDetails, grandTotal };
+            };
+            
+            const currentCosts = calculateProjectCosts(currentProject);
+            
+            const tabs = [
+                { key: 'summary', name: '📊 總表分析' },
+                { key: 'quote', name: '📋 報價計算' },
+                ...DATA_KEYS.map(key => ({ key, name: CATEGORIES[key] }))
+            ];
+            
+            const renderContent = () => {
+                if (isLoading && Object.keys(data).length === 0) {
+                    return <div className="flex justify-center items-center h-64 text-2xl text-indigo-600">載入 Google Sheets 資料中... 請稍候 (初次載入需數秒)。</div>;
+                }
+
+                if (activeTab === 'summary') {
+                    return <CostChart projects={projects} currentProjectName={currentProjectName} calculateProjectCosts={calculateProjectCosts} />;
+                }
+                if (activeTab === 'quote') {
+                    return <QuoteSheet projects={projects} currentProjectName={currentProjectName} updateCurrentProject={updateCurrentProject} calculateProjectCosts={calculateProjectCosts} />;
+                }
+                if (DATA_KEYS.includes(activeTab)) {
+                    return <BaseSheet typeKey={activeTab} data={data} currentProject={currentProject} updateCurrentProject={updateCurrentProject} updateManualAdjust={updateManualAdjust} />;
+                }
+                return null;
+            };
+
+            // 列印功能
+            const handlePrint = () => {
+                window.print();
+            };
+
+
+            return (
+                <div className="flex flex-col min-h-screen">
+                    {/* 頂部同步狀態條 */}
+                    <SyncStatus syncTime={syncTime} isLoading={isLoading} />
+                    
+                    {/* 工程切換器 */}
+                    <ProjectSelector 
+                        projects={projects} 
+                        currentProjectName={currentProjectName} 
+                        switchProject={switchProject}
+                        addProject={addProject}
+                        deleteProject={deleteProject}
+                    />
+
+                    {/* Tab 切換與列印按鈕 */}
+                    <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center print-hidden">
+                        <div className="flex flex-wrap gap-2">
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab.key}
+                                    onClick={() => setActiveTab(tab.key)}
+                                    className={`py-2 px-4 rounded-lg text-sm font-semibold transition duration-150 ${
+                                        activeTab === tab.key ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-700 hover:bg-indigo-100 border border-gray-300'
+                                    }`}
+                                >
+                                    {tab.name}
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            onClick={handlePrint}
+                            className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition duration-150 shadow-md"
+                        >
+                            🖨️ 列印 / 產生報表
+                        </button>
+                    </div>
+
+                    {/* 主要內容區域 (用於列印) */}
+                    <main className="flex-grow print-content">
+                        {renderContent()}
+                    </main>
+                </div>
+            );
+        };
+
+        // 啟動應用程式
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
 </body>
 </html>
