@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>工程成本試算系統 - React Standalone (優化版)</title>
+    <title>工程成本試算系統 - React Standalone (修正版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -24,6 +24,24 @@
             flex-direction: column;
             min-height: 100vh;
         }
+
+        /* 專門用於列印的樣式 */
+        @media print {
+            body > :not(.print-content) {
+                display: none !important;
+            }
+            .print-content {
+                display: block !important;
+                /* 確保列印內容佔滿頁面 */
+                width: 100% !important; 
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            /* 隱藏列印時不需要的元素 */
+            .print-hidden {
+                display: none !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -34,8 +52,8 @@
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
         const { createRoot } = ReactDOM;
 
-        // 2️⃣ 五大 Google Sheet 資料庫 CSV 連結
-        const CSV_URLS = {
+        // 2️⃣ 五大 Google Sheet 資料庫 CSV 連結 (修正 1: 加上隨機時間戳在 Hook 中處理)
+        const BASE_CSV_URLS = {
             materials: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=0&single=true&output=csv",
             purchased: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1300343145&single=true&output=csv",
             production: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1755952578&single=true&output=csv",
@@ -43,7 +61,7 @@
             installation: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=183776968&single=true&output=csv",
         };
 
-        const DATA_KEYS = Object.keys(CSV_URLS);
+        const DATA_KEYS = Object.keys(BASE_CSV_URLS);
         const CATEGORIES = {
             materials: '🧱 材料成本',
             purchased: '🛒 市購品',
@@ -52,7 +70,7 @@
             installation: '🔧 現場安裝',
         };
 
-        // 預設工程結構 (新增了 adminFeeRate 和 profitRate)
+        // 預設工程結構
         const DEFAULT_PROJECTS = {
             "主工程": { 
                 allItems: [], 
@@ -115,7 +133,7 @@
             return `${rowCount}-${firstLine.length}-${lastLine.length}`;
         };
 
-        // 4️⃣ 自動保存到 localStorage (同前)
+        // 自動保存到 localStorage (同前)
         const saveToLocalStorage = (key, data) => {
             try {
                 localStorage.setItem(key, JSON.stringify(data));
@@ -124,17 +142,16 @@
             }
         };
 
-        // 從 localStorage 讀取 (處理新的預設值)
+        // 從 localStorage 讀取 (同前)
         const loadFromLocalStorage = (key, defaultValue) => {
             try {
                 const storedValue = localStorage.getItem(key);
-                // 為了兼容舊的 localStorage 結構，需要深度合併預設值
                 if (key === 'allProjects' && storedValue) {
                     const storedProjects = JSON.parse(storedValue);
                     const mergedProjects = {};
                     Object.keys(storedProjects).forEach(projName => {
                         mergedProjects[projName] = {
-                            ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME], // 使用新的預設值
+                            ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME],
                             ...storedProjects[projName],
                         };
                     });
@@ -149,15 +166,9 @@
         };
 
         /**
-         * 成本計算邏輯 (提取為通用函式，用於明細顯示和總結計算)
-         * @param {object} item - 儲存的項目物件
-         * @param {array} sheetData - 該類別的資料庫數據
-         * @returns {number} subtotal - 小計金額
-         * @returns {number} weight - 計算出的重量 (僅材料有效)
-         * @returns {number} price - 使用的單價
+         * 成本計算邏輯 (同前)
          */
         const calculateCostDetail = (item, sheetData) => {
-             // 優先使用 item.forcedPrice (強制單價)
             const isForcedPrice = typeof item.forcedPrice === 'number' && item.forcedPrice > 0;
 
             const selectedData = sheetData.find(d => 
@@ -184,7 +195,7 @@
                         totalQuantity = area * (item.pcs || 0);
                     } else if (item.Mode === '型鋼') {
                         calculatedWeight = (selectedData.Density || 0) * (item.len || 0) * (item.qty || 0);
-                        totalQuantity = calculatedWeight; // 型鋼以重量計價
+                        totalQuantity = calculatedWeight;
                     } else {
                         totalQuantity = item.Quantity || 0;
                     }
@@ -201,7 +212,6 @@
                 }
             }
 
-            // 4. 前面成本明細新增之後 底部顯示的右邊都要有刪除跟編輯的功能 (單價強制更動)
             const finalCost = isForcedPrice ? item.forcedPrice : cost;
             const subtotal = totalQuantity * finalCost;
             
@@ -211,7 +221,7 @@
 
         // --- Custom Hooks ---
 
-        // 3️⃣ Google Sheet 智能同步 Hook (同前)
+        // Google Sheet 智能同步 Hook (修正 1: 新增時間戳以避免快取)
         const useDataSynchronization = () => {
             const [data, setData] = useState({});
             const [syncTime, setSyncTime] = useState(loadFromLocalStorage('syncTime', {}));
@@ -225,7 +235,8 @@
                     let updated = false;
 
                     for (const key of DATA_KEYS) {
-                        const url = CSV_URLS[key];
+                        // 修正 1: 加上隨機時間戳以強制更新
+                        const url = `${BASE_CSV_URLS[key]}&t=${Date.now()}`; 
                         const versionKey = `${key}_version`;
                         const dataKey = `${key}_data`;
                         
@@ -234,6 +245,7 @@
 
                         try {
                             const response = await fetch(url);
+                            // 檢查狀態碼，非 200 視為失敗
                             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                             
                             const csv = await response.text();
@@ -242,7 +254,6 @@
                             if (currentVersion === cachedVersion && cachedData.length > 0) {
                                 newData[key] = cachedData;
                             } else {
-                                console.log(`Data for ${key} is outdated or missing. Updating...`);
                                 const parsedData = csvToJson(csv, key);
                                 newData[key] = parsedData;
                                 
@@ -253,6 +264,7 @@
                             }
                         } catch (error) {
                             console.error(`Failed to fetch and parse ${key} data. Using cached data.`, error);
+                            // 即使失敗，也使用本地數據
                             newData[key] = cachedData;
                             if (cachedData.length === 0) {
                                 console.warn(`No data for ${key} available, neither from API nor cache.`);
@@ -274,7 +286,7 @@
             return { data, syncTime, isLoading };
         };
 
-        // 4️⃣ 多工程管理 Hook (同前，但包含了新的費率欄位)
+        // 多工程管理 Hook (同前)
         const useProjectManagement = () => {
             const [projects, setProjects] = useState(() => loadFromLocalStorage('allProjects', DEFAULT_PROJECTS));
             const [currentProjectName, setCurrentProjectName] = useState(() => {
@@ -299,7 +311,7 @@
             }, [currentProjectName]);
 
 
-            // 設置當前工程的資料 (allItems, manualAdjust, adminFeeRate, profitRate)
+            // 設置當前工程的資料
             const updateCurrentProject = useCallback((updateFn) => {
                 setProjects(prevProjects => {
                     const currentProject = prevProjects[currentProjectName];
@@ -321,14 +333,14 @@
                 
                 const newProjects = {
                     ...projects,
-                    [name]: { ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME] } // 確保使用新的預設費率
+                    [name]: { ...DEFAULT_PROJECTS[INITIAL_PROJECT_NAME] }
                 };
                 setProjects(newProjects);
                 setCurrentProjectName(name);
                 return true;
             }, [projects]);
 
-            // 刪除工程 (同前)
+            // 刪除工程
             const deleteProject = useCallback((name) => {
                 if (Object.keys(projects).length === 1) return alert("至少需要保留一個工程！");
                 if (!confirm(`確定要刪除工程：${name} 嗎？此操作不可逆！`)) return;
@@ -343,7 +355,7 @@
                 }
             }, [projects, currentProjectName]);
             
-            // 切換工程 (同前)
+            // 切換工程
             const switchProject = useCallback((name) => {
                 if (projects[name]) {
                     setCurrentProjectName(name);
@@ -366,7 +378,7 @@
 
         // --- Component Definitions ---
 
-        // 4️⃣ 多工程切換及管理 UI (同前)
+        // 多工程切換及管理 UI (同前)
         const ProjectSelector = ({ projects, currentProjectName, switchProject, addProject, deleteProject }) => {
             const [newProjectName, setNewProjectName] = useState('');
             const [showAdd, setShowAdd] = useState(false);
@@ -385,7 +397,7 @@
             };
             
             return (
-                <div className="p-4 bg-gray-100 border-b border-gray-300">
+                <div className="p-4 bg-gray-100 border-b border-gray-300 print-hidden">
                     <h2 className="text-xl font-bold mb-3 flex items-center">
                         <span className="mr-2">📁 工程管理:</span>
                         <button 
@@ -443,12 +455,11 @@
             );
         };
 
-        // 編輯/刪除模態框
+        // 編輯/刪除模態框 (同前)
         const EditItemModal = ({ item, sheetData, onClose, onSave }) => {
             const [quantity, setQuantity] = useState(item.Quantity || item.pcs || item.qty || item.len || item.L || 0);
             const [forcedPrice, setForcedPrice] = useState(item.forcedPrice || 0);
             
-            // 根據類型決定預設單價
             const originalPrice = useMemo(() => {
                 const { price } = calculateCostDetail({ ...item, Quantity: 1, pcs: 1, qty: 1, len: 1, L: 1, forcedPrice: 0 }, sheetData);
                 return price;
@@ -457,18 +468,17 @@
             const handleSave = () => {
                 const update = {
                     Quantity: quantity,
-                    forcedPrice: parseFloat(forcedPrice) || undefined, // 儲存強制單價
+                    forcedPrice: parseFloat(forcedPrice) || undefined,
                 };
 
-                // 材料模式的數量欄位名稱不同
                 if (item.typeKey === 'materials') {
                     if (item.Mode === '板材') {
-                        update.L = item.L; // 長寬不變
+                        update.L = item.L;
                         update.W = item.W;
                         update.pcs = parseInt(quantity);
                         delete update.Quantity;
                     } else if (item.Mode === '型鋼') {
-                        update.len = item.len; // 長度不變
+                        update.len = item.len;
                         update.qty = parseInt(quantity);
                         delete update.Quantity;
                     } else {
@@ -534,8 +544,7 @@
         };
 
 
-        // --- 5️⃣ 五大試算頁面基底組件 ---
-
+        // 五大試算頁面基底組件 (同前)
         const BaseSheet = ({ typeKey, data, currentProject, updateCurrentProject }) => {
             const [editingItem, setEditingItem] = useState(null);
             
@@ -543,13 +552,11 @@
             const sheetItems = allItems.filter(item => item.typeKey === typeKey);
             const sheetData = data[typeKey] || [];
             
-            // 找出所有類別 (Category)
             const categories = useMemo(() => {
                 const cats = [...new Set(sheetData.map(item => item.Category).filter(c => c))];
                 return cats.sort();
             }, [sheetData]);
 
-            // 處理項目變更
             const handleChangeItem = (index, field, value) => {
                 updateCurrentProject(proj => {
                     const newAllItems = [...proj.allItems];
@@ -561,7 +568,6 @@
                 });
             };
             
-            // 處理編輯模態框保存
             const handleSaveEdit = (id, updates) => {
                  updateCurrentProject(proj => {
                     const newAllItems = proj.allItems.map(item => 
@@ -571,7 +577,6 @@
                 });
             };
 
-            // 處理項目刪除
             const handleDeleteItem = (id) => {
                 if (!confirm("確定要刪除此項目嗎？")) return;
                 updateCurrentProject(proj => ({
@@ -580,7 +585,6 @@
                 }));
             };
 
-            // 處理新增項目
             const handleAddItem = (newItem) => {
                 updateCurrentProject(proj => ({
                     ...proj,
@@ -588,7 +592,6 @@
                 }));
             };
 
-            // 渲染特殊的輸入欄位 (同前)
             const renderInputs = (item, index) => {
                 if (typeKey === 'materials') {
                     const isSheet = item.Mode === '板材';
@@ -616,7 +619,6 @@
                     return <input type="number" placeholder="數量" value={item.Quantity || ''} onChange={(e) => handleChangeItem(index, 'Quantity', parseFloat(e.target.value) || 0)} className="w-20 p-1 border rounded text-right" min="0" step="0.01" />;
                 } 
                 else if (typeKey === 'installation') {
-                    // 這裡不允許直接編輯數量/模式/規格，只能在編輯器內修改數量
                     const modes = [...new Set(sheetData.filter(d => d.Category === item.Category).map(d => d.Mode).filter(m => m))];
                     const specs = [...new Set(sheetData.filter(d => d.Category === item.Category && d.Mode === item.Mode).map(d => d.Spec).filter(s => s))];
                     
@@ -719,12 +721,10 @@
                             Category: selectedCategory, 
                             Item: selectedItem, 
                             Quantity: initialQuantity, 
-                            Mode: selectedData ? selectedData.Mode : undefined, // 儲存材料模式
-                            // 初始化板材的 L/W/pcs
+                            Mode: selectedData ? selectedData.Mode : undefined,
                             L: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
                             W: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
                             pcs: selectedData && selectedData.Mode === '板材' ? 1 : undefined,
-                            // 初始化型鋼的 len/qty
                             len: selectedData && selectedData.Mode === '型鋼' ? 1 : undefined,
                             qty: selectedData && selectedData.Mode === '型鋼' ? 1 : undefined,
                         });
@@ -734,7 +734,7 @@
                 };
 
                 return (
-                    <div className="flex flex-wrap items-center gap-2 p-3 bg-white border-t border-gray-200">
+                    <div className="flex flex-wrap items-center gap-2 p-3 bg-white border-t border-gray-200 print-hidden">
                         <select value={selectedCategory} onChange={handleCategoryChange} className="p-2 border rounded">
                             <option value="">選擇分類</option>
                             {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
@@ -785,7 +785,7 @@
                                     <th className="px-3 py-3">{typeKey === 'materials' ? '長寬/數量' : '數量'}</th>
                                     {typeKey === 'materials' && <th className="px-3 py-3 text-right">面積/重量</th>}
                                     <th className="px-3 py-3 text-right">小計 (TWD)</th>
-                                    <th className="px-3 py-3 text-center">操作</th>
+                                    <th className="px-3 py-3 text-center print-hidden">操作</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200 text-sm">
@@ -815,8 +815,7 @@
                                             <td className="px-3 py-4 whitespace-nowrap text-right font-semibold text-indigo-600">
                                                 {subtotal.toFixed(2)}
                                             </td>
-                                            {/* 4. 新增刪除跟編輯的功能 */}
-                                            <td className="px-3 py-4 whitespace-nowrap text-center space-x-2">
+                                            <td className="px-3 py-4 whitespace-nowrap text-center space-x-2 print-hidden">
                                                 <button 
                                                     onClick={() => setEditingItem(item)}
                                                     className="text-blue-600 hover:text-blue-800 font-medium text-sm"
@@ -870,13 +869,13 @@
             );
         };
         
-        // 6️⃣ SummaryPage (總表 + 圓餅圖 + 新的加總邏輯)
-        const SummaryPage = ({ projects, currentProjectName, updateCurrentProject, sheetData, handleExport }) => {
+        // SummaryPage (總表 + 圓餅圖 + 新的加總邏輯)
+        const SummaryPage = ({ projects, currentProjectName, updateCurrentProject, sheetData, handleExportToExcel, handlePrint }) => {
             const currentProject = projects[currentProjectName];
             const allItems = currentProject.allItems;
             const chartRef = useRef(null);
 
-            // 計算五大類別總和 (使用優化後的 calculateCostDetail 函式)
+            // 計算五大類別總和
             const categoryTotals = useMemo(() => {
                 const totals = { materials: 0, purchased: 0, production: 0, transportation: 0, installation: 0 };
                 
@@ -894,12 +893,11 @@
                 return Object.values(categoryTotals).reduce((sum, total) => sum + total, 0);
             }, [categoryTotals]);
 
-            // 3. 底部加總優化: 管銷/報價計算
+            // 底部加總優化: 管銷/報價計算
             const baseCost = totalSum + currentProject.manualAdjust;
             const adminFee = baseCost * currentProject.adminFeeRate;
             const finalCostWithAdmin = baseCost + adminFee;
             
-            // 建議報價: (總成本 + 管銷費用) / (1 - 毛利率)
             const suggestedQuote = currentProject.profitRate < 1 ? 
                 finalCostWithAdmin / (1 - currentProject.profitRate) : 
                 finalCostWithAdmin;
@@ -917,10 +915,9 @@
             // 管銷費用修改
             const handleAdminFeeChange = (e) => {
                 const value = parseFloat(e.target.value) || 0;
-                // 判斷是百分比還是金額 (這裡統一用百分比輸入)
                 updateCurrentProject(proj => ({
                     ...proj,
-                    adminFeeRate: value / 100 // 儲存為比例
+                    adminFeeRate: value / 100
                 }));
             };
             
@@ -929,12 +926,12 @@
                 const value = parseFloat(e.target.value) || 0;
                 updateCurrentProject(proj => ({
                     ...proj,
-                    profitRate: value / 100 // 儲存為比例
+                    profitRate: value / 100
                 }));
             };
 
 
-            // 圓餅圖渲染 (同前)
+            // 圓餅圖渲染
             useEffect(() => {
                 const ctx = document.getElementById('costPieChart');
                 if (!ctx) return;
@@ -1010,20 +1007,29 @@
 
 
             return (
-                <div className="p-6 bg-white rounded-lg shadow-2xl">
+                <div className="p-6 bg-white rounded-lg shadow-2xl print-content">
                     <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b-4 border-indigo-600 pb-2 flex justify-between items-center">
                         <span>💰 成本總覽 - {currentProjectName}</span>
-                        <button
-                            onClick={() => handleExport(currentProjectName, categoryTotals, currentProject, finalCostWithAdmin, suggestedQuote)}
-                            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 text-sm"
-                        >
-                            列印 / 輸出 Excel 📑
-                        </button>
+                        {/* 修正 2: 拆分按鈕 */}
+                        <div className="space-x-2 print-hidden">
+                            <button
+                                onClick={() => handlePrint()}
+                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-150 text-sm"
+                            >
+                                🖨️ 列印報表
+                            </button>
+                            <button
+                                onClick={() => handleExportToExcel(currentProjectName, categoryTotals, currentProject, finalCostWithAdmin, suggestedQuote, sheetData)}
+                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 text-sm"
+                            >
+                                📑 輸出 Excel
+                            </button>
+                        </div>
                     </h2>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         {/* 總表 */}
-                        <div>
+                        <div className="print-content">
                             <h3 className="text-2xl font-semibold text-gray-800 mb-4">成本結算明細</h3>
                             <div className="border border-gray-300 rounded-lg overflow-hidden">
                                 <table className="min-w-full divide-y divide-gray-200">
@@ -1054,7 +1060,7 @@
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center">
                                                 手動調整 (總成本加減)
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right print-hidden">
                                                 <input
                                                     type="number"
                                                     value={currentProject.manualAdjust}
@@ -1062,6 +1068,9 @@
                                                     className="w-full text-right p-1 border rounded"
                                                     step="1"
                                                 />
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right hidden print-table-cell">
+                                                {currentProject.manualAdjust.toFixed(2).toLocaleString()}
                                             </td>
                                         </tr>
                                         {/* 總計成本 (基礎成本) */}
@@ -1073,7 +1082,7 @@
                                         </tr>
                                         {/* 管銷費用 */}
                                         <tr>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center print-hidden">
                                                 管銷費用
                                                 <input
                                                     type="number"
@@ -1084,8 +1093,11 @@
                                                 />
                                                 <span className="ml-1 text-xs">%</span>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-500 text-right">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-500 text-right print-hidden">
                                                 +{adminFee.toFixed(2).toLocaleString()}
+                                            </td>
+                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-red-500 text-right hidden print-table-cell">
+                                                管銷費用 ({ (currentProject.adminFeeRate * 100).toFixed(0)}%): +{adminFee.toFixed(2).toLocaleString()}
                                             </td>
                                         </tr>
                                         {/* 最終總成本 */}
@@ -1097,7 +1109,7 @@
                                         </tr>
                                         {/* 建議報價 */}
                                         <tr className="bg-indigo-600 text-white font-extrabold">
-                                            <td className="px-6 py-4 whitespace-nowrap text-xl">
+                                            <td className="px-6 py-4 whitespace-nowrap text-xl print-hidden">
                                                 建議報價 (毛利率: 
                                                 <input
                                                     type="number"
@@ -1111,6 +1123,9 @@
                                             <td className="px-6 py-4 whitespace-nowrap text-xl text-right">
                                                 {suggestedQuote.toFixed(2).toLocaleString()} TWD
                                             </td>
+                                             <td className="px-6 py-4 whitespace-nowrap text-xl hidden print-table-cell">
+                                                建議報價 (毛利率: {(currentProject.profitRate * 100).toFixed(0)}%)
+                                            </td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -1118,7 +1133,7 @@
                         </div>
 
                         {/* 圓餅圖 */}
-                        <div>
+                        <div className="print-hidden"> 
                             <h3 className="text-2xl font-semibold text-gray-800 mb-4">成本分佈圓餅圖</h3>
                             <div className="chart-container bg-gray-50 p-4 rounded-lg shadow-inner">
                                 <canvas id="costPieChart"></canvas>
@@ -1126,16 +1141,14 @@
                         </div>
                     </div>
                     
-                    <div className="mt-8 pt-4 border-t border-gray-300 text-sm text-gray-600">
+                    <div className="mt-8 pt-4 border-t border-gray-300 text-sm text-gray-600 print-hidden">
                         * 所有數據皆以 **{currentProjectName}** 工程的資料為準。
                     </div>
                 </div>
             );
         };
-
-        /**
-         * 輸出 Excel 函式
-         */
+        
+        // 輸出 Excel 函式 (同前)
         const handleExportToExcel = (projectName, categoryTotals, projectData, finalCostWithAdmin, suggestedQuote, allData) => {
             if (!window.XLSX) {
                 alert("XLSX 函式庫未載入！請檢查網路連線。");
@@ -1184,15 +1197,26 @@
                 const detailRows = sheetItems.map(item => {
                     const { subtotal, calculatedWeight, price } = calculateCostDetail(item, sheetData);
                     
-                    let quantityValue = item.Quantity || item.pcs || item.qty || item.len || item.L || 0;
+                    let quantityValue = item.Quantity || 0;
                     let quantityUnit = "單位";
+                    let sizeInfo = '';
+                    let weightInfo = '';
+
                     if (typeKey === 'materials') {
                         if (item.Mode === '板材') {
                             quantityUnit = 'pcs';
                             quantityValue = item.pcs || 0;
+                            sizeInfo = `L: ${item.L || 0} / W: ${item.W || 0}`;
+                            weightInfo = `${calculatedWeight.toFixed(2)} kg (總重)`;
                         } else if (item.Mode === '型鋼') {
                             quantityUnit = 'qty';
                             quantityValue = item.qty || 0;
+                            sizeInfo = `len: ${item.len || 0} / qty: ${item.qty || 0}`;
+                            weightInfo = `${calculatedWeight.toFixed(2)} kg (總重)`;
+                        } else {
+                            quantityUnit = '單位';
+                            sizeInfo = '';
+                            weightInfo = '';
                         }
                     }
 
@@ -1207,42 +1231,64 @@
                     ];
 
                     if (typeKey === 'materials') {
-                        let sizeInfo = '';
-                        let weightInfo = '';
-                        if (item.Mode === '板材') {
-                            sizeInfo = `L: ${item.L || 0} / W: ${item.W || 0}`;
-                            weightInfo = `${calculatedWeight.toFixed(2)} kg (總重)`;
-                        } else if (item.Mode === '型鋼') {
-                            sizeInfo = `len: ${item.len || 0} / qty: ${item.qty || 0}`;
-                            weightInfo = `${calculatedWeight.toFixed(2)} kg (總重)`;
-                        }
-                        return [...baseRow, sizeInfo, item.pcs || item.qty || '', weightInfo, subtotal.toFixed(2)];
+                        return [...baseRow, sizeInfo, quantityValue, weightInfo, subtotal.toFixed(2)];
                     }
 
                     return [...baseRow, subtotal.toFixed(2)];
                 });
                 
+                const totalSubtotal = detailRows.reduce((sum, row) => {
+                    // 總計是最後一個欄位
+                    const lastValue = row[row.length - 1];
+                    return sum + (parseFloat(lastValue) || 0);
+                }, 0);
+
                 const finalRows = [
                     detailHeader,
                     ...detailRows,
                     ["", "", "", "", "", "", "", ""],
-                    ["總計:", "", "", "", "", "", "", "", detailRows.reduce((sum, row) => sum + parseFloat(row[row.length - 1]), 0).toFixed(2)]
+                    ...DATA_KEYS.includes(typeKey) ? [
+                        ...typeKey === 'materials' ? [
+                             ["總重:", "", "", "", "", "", "", "", sheetItems.reduce((sum, item) => sum + calculateCostDetail(item, sheetData).calculatedWeight, 0).toFixed(2) + ' kg', ""],
+                        ] : [],
+                        ["總計:", "", "", "", "", "", "", "", totalSubtotal.toFixed(2)]
+                    ] : []
                 ];
 
                 const wsDetail = XLSX.utils.aoa_to_sheet(finalRows);
                 XLSX.utils.book_append_sheet(wb, wsDetail, sheetName);
             });
 
-
             // 輸出檔案
-            XLSX.writeFile(wb, `${projectName}_成本報表_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '')}.xlsx`);
+            try {
+                XLSX.writeFile(wb, `${projectName}_成本報表_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '')}.xlsx`);
+            } catch (error) {
+                console.error("Excel 輸出失敗:", error);
+                alert("Excel 輸出失敗！請檢查瀏覽器權限或檔案名稱。");
+            }
+        };
+
+        // 列印報表函式 (修正 2: 新增列印功能)
+        const handlePrint = () => {
+             // 隱藏圖表，因為 Chart.js 在列印時容易出錯
+             const chartCanvas = document.getElementById('costPieChart');
+             if (chartCanvas) {
+                chartCanvas.style.display = 'none';
+             }
+
+            // 使用瀏覽器原生列印功能
+            window.print();
+            
+             // 列印完成後恢復圖表顯示
+             if (chartCanvas) {
+                chartCanvas.style.display = 'block';
+             }
         };
 
 
         // --- Main App Component ---
 
         const App = () => {
-            // 2. 成本總覽按鈕位置在現場安裝之後
             const TABS_ORDER = [
                 'materials', 'purchased', 'production', 'transportation', 'installation', 'summary'
             ];
@@ -1265,7 +1311,8 @@
                                 currentProjectName={currentProjectName} 
                                 updateCurrentProject={updateCurrentProject} 
                                 sheetData={sheetData} 
-                                handleExport={handleExportToExcel}
+                                handleExportToExcel={handleExportToExcel}
+                                handlePrint={handlePrint} // 傳遞列印函式
                             />;
                 }
                 
@@ -1282,7 +1329,7 @@
             
             return (
                 <div className="min-h-screen bg-gray-50 flex flex-col">
-                    <header>
+                    <header className="print-hidden">
                         <ProjectSelector 
                             projects={projects} 
                             currentProjectName={currentProjectName} 
@@ -1322,7 +1369,7 @@
                     </main>
 
                     {/* Footer / Sync Info & CSV URLs */}
-                    <footer className="bg-gray-100 border-t border-gray-200 mt-auto p-4 text-xs text-gray-600">
+                    <footer className="bg-gray-100 border-t border-gray-200 mt-auto p-4 text-xs text-gray-600 print-hidden">
                         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                             <h3 className="font-bold text-sm text-gray-700 mb-2">Google Sheet 資料庫資訊:</h3>
                             <div className="flex flex-wrap mb-2">
@@ -1343,8 +1390,8 @@
                                     {DATA_KEYS.map(key => (
                                         <li key={`url-${key}`} className="break-all">
                                             <span className="font-medium text-indigo-600">{CATEGORIES[key]}:</span> 
-                                            <a href={CSV_URLS[key]} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-1">
-                                                {CSV_URLS[key]}
+                                            <a href={BASE_CSV_URLS[key]} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-1">
+                                                {BASE_CSV_URLS[key]}
                                             </a>
                                         </li>
                                     ))}
