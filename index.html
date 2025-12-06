@@ -11,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/iconv-lite@0.6.3/lib/index.js"></script>
     <style>
         /* 確保 Chart.js 容器有固定高度 */
         .chart-container {
@@ -91,22 +92,35 @@
         const INITIAL_PROJECT_NAME = "主工程";
 
         // --- Utility Functions ---
-
-        // CSV 轉 JSON
+        
+        // 修正後的 CSV 轉 JSON 函數 (處理中文編碼和分隔符)
         const csvToJson = (csv, key) => {
-            const lines = csv.split('\n').filter(line => line.trim() !== '');
+            // 處理 Windows/Mac 換行符，並移除空白行
+            const lines = csv.split(/[\r\n]+/).filter(line => line.trim() !== '');
             if (lines.length === 0) return [];
             
-            const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            // 由於 Google Sheet CSV 可能使用 Tab 或其他非標準分隔符號，我們使用正規表達式來解析，
+            // 但先以逗號作為主要分隔符號
+            
+            // 嘗試解析標頭 (第一行)
+            // 使用更寬鬆的匹配，避免雙引號內部的逗號造成問題
+            const headerLine = lines[0];
+            const header = headerLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+                                     .map(h => h.trim().replace(/^"|"$/g, ''));
+            
             const data = [];
 
             for (let i = 1; i < lines.length; i++) {
-                const currentLine = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(col => col.trim().replace(/^"|"$/g, ''));
-                if (currentLine.length !== header.length) continue;
+                const currentLine = lines[i];
+                // 使用同樣的正規表達式解析內容
+                const currentCols = currentLine.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+                                              .map(col => col.trim().replace(/^"|"$/g, ''));
+                                              
+                if (currentCols.length < header.length) continue; // 確保欄位數符合標頭
                 
                 const item = {};
                 for (let j = 0; j < header.length; j++) {
-                    item[header[j]] = currentLine[j];
+                    item[header[j]] = currentCols[j];
                 }
 
                 const processedItem = {};
@@ -180,7 +194,7 @@
         };
 
         /**
-         * 成本計算邏輯
+         * 成本計算邏輯 (此處未變動)
          */
         const calculateCostDetail = (item, sheetData) => {
             const isForcedPrice = typeof item.forcedPrice === 'number' && item.forcedPrice > 0;
@@ -236,13 +250,20 @@
 
         // --- Custom Hooks ---
 
-        // Google Sheet 智能同步 Hook (包含強制更新和錯誤捕獲)
+        // Google Sheet 智能同步 Hook (重點修正 fetch 處理編碼)
         const useDataSynchronization = () => {
             const [data, setData] = useState({});
             const [syncTime, setSyncTime] = useState(loadFromLocalStorage('syncTime', {}));
             const [isLoading, setIsLoading] = useState(true);
 
             useEffect(() => {
+                // 檢查 iconv-lite 是否載入
+                if (!window.iconv) {
+                    console.error("iconv-lite 函式庫未載入，無法處理中文編碼！");
+                    setIsLoading(false);
+                    return;
+                }
+                
                 const syncData = async () => {
                     setIsLoading(true);
                     const newData = {};
@@ -262,13 +283,30 @@
                             const response = await fetch(url);
                             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                             
-                            const csv = await response.text();
+                            // 🚨 關鍵修正：將回應內容讀取為 ArrayBuffer (原始位元組)
+                            const buffer = await response.arrayBuffer();
+                            const unit8Arr = new Uint8Array(buffer);
+                            
+                            // 嘗試以中文 Big5 (常見於繁體中文 CSV) 解碼
+                            let csv = '';
+                            try {
+                                csv = iconv.decode(unit8Arr, 'big5');
+                                // 檢查是否仍有亂碼，如果亂碼嚴重，可能需要嘗試 gbk
+                                if (csv.includes('')) { 
+                                    csv = iconv.decode(unit8Arr, 'gbk');
+                                }
+                            } catch (e) {
+                                // 如果 iconv 解碼失敗，嘗試預設的 UTF-8 (但不應出現亂碼問題)
+                                csv = new TextDecoder('utf-8').decode(unit8Arr);
+                            }
+
                             const currentVersion = calculateVersion(csv);
                             
                             if (currentVersion === cachedVersion && cachedData.length > 0) {
                                 newData[key] = cachedData;
                             } else {
-                                const parsedData = csvToJson(csv, key);
+                                // 🚨 關鍵修正：將解碼後的 CSV 傳入修正後的解析函數
+                                const parsedData = csvToJson(csv, key); 
                                 newData[key] = parsedData;
                                 
                                 localStorage.setItem(dataKey, JSON.stringify(parsedData));
@@ -276,7 +314,9 @@
                                 newSyncTime[key] = new Date().toLocaleString();
                                 updated = true;
                                 if (parsedData.length === 0) {
-                                    console.warn(`[數據警告] ${CATEGORIES[key]} 載入成功，但內容為空 (0 筆資料)。`);
+                                    console.warn(`[數據警告] ${CATEGORIES[key]} 載入成功，但內容為空 (0 筆資料)。請檢查 Sheet 內容。`);
+                                } else {
+                                     console.log(`[同步成功] ${CATEGORIES[key]} 載入 ${parsedData.length} 筆資料。`);
                                 }
                             }
                         } catch (error) {
@@ -287,7 +327,7 @@
                                 console.warn(`[使用快取] 載入失敗，使用快取資料 (${cachedData.length} 筆)。`);
                             } else {
                                 newData[key] = [];
-                                console.error(`[嚴重警告] 無法從 API 或快取獲取 ${CATEGORIES[key]} 資料，請檢查 Google Sheet 連結及發布設定。`);
+                                console.error(`[嚴重警告] 無法從 API 或快取獲取 ${CATEGORIES[key]} 資料。`);
                             }
                         }
                     }
@@ -306,7 +346,9 @@
             return { data, syncTime, isLoading };
         };
 
-        // 多工程管理 Hook
+        // --- 其餘程式碼未變動 (與之前提供的版本相同) ---
+        
+        // 多工程管理 Hook (未變動)
         const useProjectManagement = () => {
             const [projects, setProjects] = useState(() => loadFromLocalStorage('allProjects', DEFAULT_PROJECTS));
             const [currentProjectName, setCurrentProjectName] = useState(() => {
@@ -408,7 +450,7 @@
 
         // --- Component Definitions ---
 
-        // 工程切換及管理 UI
+        // 工程切換及管理 UI (未變動)
         const ProjectSelector = ({ projects, currentProjectName, switchProject, addProject, deleteProject }) => {
             const [newProjectName, setNewProjectName] = useState('');
             const [showAdd, setShowAdd] = useState(false);
@@ -485,7 +527,7 @@
             );
         };
 
-        // 編輯/刪除模態框
+        // 編輯/刪除模態框 (未變動)
         const EditItemModal = ({ item, sheetData, onClose, onSave }) => {
             const [quantity, setQuantity] = useState(item.Quantity || item.pcs || item.qty || item.len || item.L || 0);
             const [forcedPrice, setForcedPrice] = useState(item.forcedPrice || 0);
@@ -574,7 +616,7 @@
         };
 
 
-        // 五大試算頁面基底組件 (包含手動調整欄位)
+        // 五大試算頁面基底組件 (包含手動調整欄位) (未變動)
         const BaseSheet = ({ typeKey, data, currentProject, updateCurrentProject, updateManualAdjust }) => {
             const [editingItem, setEditingItem] = useState(null);
             
@@ -921,7 +963,7 @@
             );
         };
         
-        // SummaryPage (總表 + 圓餅圖)
+        // SummaryPage (總表 + 圓餅圖) (未變動)
         const SummaryPage = ({ projects, currentProjectName, updateCurrentProject, sheetData, handleExportToExcel, handlePrint }) => {
             const currentProject = projects[currentProjectName];
             const allItems = currentProject.allItems;
@@ -1173,7 +1215,7 @@
             );
         };
         
-        // 輸出 Excel 函式 
+        // 輸出 Excel 函式 (未變動)
         const handleExportToExcel = (projectName, categoryTotals, projectData, finalCostWithAdmin, suggestedQuote, allData) => {
             if (!window.XLSX) {
                 alert("XLSX 函式庫未載入！請檢查網路連線。");
@@ -1300,7 +1342,7 @@
             }
         };
 
-        // 列印報表函式
+        // 列印報表函式 (未變動)
         const handlePrint = () => {
              // 隱藏圖表
              const chartCanvas = document.getElementById('costPieChart');
