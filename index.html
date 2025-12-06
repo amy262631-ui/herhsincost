@@ -1378,7 +1378,7 @@ function App() {
     } else {
       const parsed = rows
         .slice(1)
-        ..map(r => r.split(","))
+        .map(r => r.split(","))
 .filter(r => r.length >= 3)
 .map(r => {
   if (name === "transport") {
