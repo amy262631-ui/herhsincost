@@ -75,6 +75,41 @@ function parseCSV(text) {
   });
 }
 /****************************************************
+ * PART X — 工程資料儲存 / 讀取
+ ****************************************************/
+
+// 五大成本的手動調整預設值（新版：物件結構）
+const defaultManualAdjust = {
+  material: 0,
+  purchase: 0,
+  fabrication: 0,
+  transport: 0,
+  install: 0
+};
+
+// 儲存工程資料到 localStorage
+function saveProjects(data) {
+  localStorage.setItem("projects_v3", JSON.stringify(data));
+}
+
+// 載入工程資料
+function loadProjects() {
+  const raw = localStorage.getItem("projects_v3");
+  if (!raw) return {};
+
+  const parsed = JSON.parse(raw);
+
+  // 🔧 保證每個工程都包含新版 manualAdjust 物件
+  for (const key in parsed) {
+    if (!parsed[key].manualAdjust || typeof parsed[key].manualAdjust !== "object") {
+      parsed[key].manualAdjust = { ...defaultManualAdjust };
+    }
+    if (!parsed[key].allItems) parsed[key].allItems = [];
+  }
+  return parsed;
+}
+
+ /****************************************************
  * PART 2 — 多工程管理 ProjectManager（第 2 段）
  ****************************************************/
 
