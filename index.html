@@ -75,42 +75,11 @@ function parseCSV(text) {
   });
 }
 /****************************************************
- * PART 2 — 多工程管理 ProjectManager
- * 結構：
- * {
- *   "工程A": { allItems:[], manualAdjust:{...} },
- *   "工程B": { ... }
- * }
+ * PART 2 — 多工程管理 ProjectManager（第 2 段）
  ****************************************************/
 
-// 從 localStorage 載入工程資料
-function loadProjects() {
-  try {
-    const raw = localStorage.getItem("projects_v3");
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-// 儲存工程資料到 localStorage
-function saveProjects(projects) {
-  localStorage.setItem("projects_v3", JSON.stringify(projects));
-}
-
-// 預設的人工調整結構（五大項目）
-const defaultManualAdjust = 0;
-  material: 0,
-  purchase: 0,
-  fabrication: 0,
-  transport: 0,
-  install: 0
-};
-
-// 多工程管理元件
 function ProjectManager({ currentProject, setCurrentProject, projects, setProjects }) {
-  
+
   // 新增工程
   function addProject() {
     const name = prompt("請輸入工程名稱：");
@@ -121,9 +90,13 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
       return;
     }
 
+    // 正確的工程結構
     const updated = {
       ...projects,
-      [name]: { allItems: [], manualAdjust: 0 }
+      [name]: {
+        allItems: [],
+        manualAdjust: { ...defaultManualAdjust }
+      }
     };
 
     setProjects(updated);
@@ -150,6 +123,7 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
 
       <div className="flex flex-wrap gap-2">
 
+        {/* 工程切換按鈕 */}
         {Object.keys(projects).map(key => (
           <button
             key={key}
@@ -185,7 +159,6 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
       </div>
     </div>
   );
-}
 
 /****************************************************
  * PART 4 — MaterialsPage（新版，無模式選單）
