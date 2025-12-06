@@ -2,13 +2,31 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8" />
-<title>工程五大成本試算系統（需人工整合 PART 1–10）</title>
+<title>工程五大成本試算系統</title>
+
+<!-- 必備：Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- 必備：React 18 -->
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+<!-- 必備：Babel Standalone（用來編譯 JSX） -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<!-- 必備：Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+
 </head>
+
 <body>
-{
-  工程1: { allItems:[], manualAdjust:0 },
-  工程2: { ... }
-}
+
+  <!-- React 掛載點 -->
+  <div id="root"></div>
+
+  <!-- ⬇⬇⬇ 你所有 React + JSX 程式碼必須放在這裡 ⬇⬇⬇ -->
+  <script type="text/babel">
 /****************************************************
  * PART 2 — ProjectManager Component
  * 多工程管理：新增工程、刪除工程、切換工程
