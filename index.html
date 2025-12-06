@@ -274,58 +274,55 @@ function App() {
   /* --------------------------------------------------
      共用：渲染明細表格
   ---------------------------------------------------*/
-  function renderTable(typeName) {
-    return (
-      <table className="w-full text-sm mt-4 border">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="p-2 border">分類</th>
-            <th className="p-2 border">規格</th>
-            <th className="p-2 border">數量</th>
-            <th className="p-2 border">單價</th>
-            <th className="p-2 border">小計</th>
-            <th className="p-2 border">操作</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {data[typeName].map(row => (
-            <tr key={row.id}>
-              <td className="p-2 border">{row.category}</td>
-              <td className="p-2 border">{row.spec}</td>
-
-              <td className="p-2 border">
-                <input
-                  type="number"
-                  className="border p-1 w-20"
-                  defaultValue={row.qty}
-                  onBlur={e => editItem(typeName, row.id, e.target.value, row.price)}
-                />
-              </td>
-
-              <td className="p-2 border">
-                <input
-                  type="number"
-                  className="border p-1 w-20"
-                  defaultValue={row.price}
-                  onBlur={e => editItem(typeName, row.id, row.qty, e.target.value)}
-                />
-              </td>
-
-              <td className="p-2 border">{row.subtotal.toLocaleString()}</td>
-
-              <td className="p-2 border text-center">
-                <button
-                  className="px-3 py-1 bg-red-600 text-white rounded"
-                  onClick={() => removeItem(typeName, row.id)}
-                >刪除</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  }
+ function renderTable(typeName) {
+  return (
+    <table className="w-full text-sm mt-4 border">
+      <thead className="bg-gray-100">
+        <tr>
+          <th className="p-2 border">分類</th>
+          <th className="p-2 border">規格</th>
+          <th className="p-2 border">數量</th>
+          <th className="p-2 border">單價</th>
+          <th className="p-2 border">小計</th>
+          <th className="p-2 border">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {data[typeName].map(row => (
+          <tr key={row.id}>
+            <td className="p-2 border">{row.category}</td>
+            <td className="p-2 border">{row.spec}</td>
+            <td className="p-2 border">
+              <input
+                type="number"
+                className="border p-1 w-20"
+                defaultValue={row.qty}
+                onBlur={e => editItem(typeName, row.id, e.target.value, row.price)}
+              />
+            </td>
+            <td className="p-2 border">
+              <input
+                type="number"
+                className="border p-1 w-20"
+                defaultValue={row.price}
+                onBlur={e => editItem(typeName, row.id, row.qty, e.target.value)}
+              />
+            </td>
+            <td className="p-2 border">{row.subtotal.toLocaleString()}</td>
+            <td className="p-2 border text-center">
+              <button
+                className="px-3 py-1 bg-red-600 text-white rounded"
+                onClick={() => removeItem(typeName, row.id)}
+              >
+                刪除
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
   /* --------------------------------------------------
      每一類成本的 UI（下拉 + 數量 + 新增）
