@@ -75,13 +75,14 @@ function parseCSV(text) {
 }
 function parseTransportRow(r) {
   return {
-    category: r[0],     // 高空作業車
-    spec: r[1],         // 21M
-    region: r[2],       // 南（地區）
-    price: Number(r[3] || 0),  // 單價
-    unit: r[4] || "台"  // 單位
+    category: r[0],     // 車種
+    spec: r[1],         // 項目
+    region: r[2],       // 地區（南/北/中）
+    unit: r[3],         // 單位（台）
+    price: Number(r[4] || 0)  // 單價（數字）
   };
 }
+
 /****************************************************
  * PART X — 工程資料儲存 / 讀取
  ****************************************************/
