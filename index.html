@@ -1,46 +1,92 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<meta charset="UTF-8" />
-<title>工程五大成本試算系統</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>工程五大成本試算系統（C-2 版）</title>
 
-<!-- 必備：Tailwind -->
-<script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
 
-<!-- 必備：React 18 -->
-<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- React 18 -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 
-<!-- 必備：Babel Standalone（用來編譯 JSX） -->
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Babel Standalone -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-<!-- 必備：Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <!-- Chart.js + DataLabels 插件 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
+  <!-- Excel 匯出用 SheetJS -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    body { background-color: #f3f4f6; }
+    .print-hidden { display: block; }
+    @media print {
+      .print-hidden { display: none !important; }
+    }
+  </style>
 </head>
 
-<body>
-
-  <!-- React 掛載點 -->
+<body class="min-h-screen">
+  <!-- React Root -->
   <div id="root"></div>
 
-  <!-- ⬇⬇⬇ 你所有 React + JSX 程式碼必須放在這裡 ⬇⬇⬇ -->
+  <!-- Main Application Script -->
   <script type="text/babel">
+
 /****************************************************
- * PART 2 — ProjectManager Component
- * 多工程管理：新增工程、刪除工程、切換工程
+ * PART 1 — 全域常數、工具函式（含金額千分位表示）
+ ****************************************************/
+
+// Google Sheet CSV URLs
+const CSV_URLS = {
+  material: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=0&single=true&output=csv",
+  purchase: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1300343145&single=true&output=csv",
+  manufacture: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1755952578&single=true&output=csv",
+  transport: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=11669107&single=true&output=csv",
+  install: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=183776968&single=true&output=csv"
+};
+
+// 金額千分位格式化
+function formatMoney(num) {
+  if (isNaN(num)) return "0";
+  return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// 重量小數兩位
+function formatWeight(num) {
+  if (isNaN(num)) return "0.00";
+  return Number(num).toFixed(2);
+}
+
+// CSV 解析
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  const headers = lines[0].split(",");
+  return lines.slice(1).map(line => {
+    const cols = line.split(",");
+    let obj = {};
+    headers.forEach((h, i) => obj[h.trim()] = cols[i]?.trim());
+    return obj;
+  });
+}
+/****************************************************
+ * PART 2 — 多工程管理 ProjectManager
  * 結構：
  * {
- *   "工程名稱A": { allItems:[], manualAdjust:0 },
- *   "工程名稱B": { allItems:[], manualAdjust:0 }
+ *   "工程A": { allItems:[], manualAdjust:{...} },
+ *   "工程B": { ... }
  * }
  ****************************************************/
 
-// 讀取 localStorage
+// 從 localStorage 載入工程資料
 function loadProjects() {
   try {
-    const raw = localStorage.getItem("projects_v2");
+    const raw = localStorage.getItem("projects_v3");
     if (!raw) return {};
     return JSON.parse(raw);
   } catch {
@@ -48,27 +94,36 @@ function loadProjects() {
   }
 }
 
-// 存入 localStorage
+// 儲存工程資料到 localStorage
 function saveProjects(projects) {
-  localStorage.setItem("projects_v2", JSON.stringify(projects));
+  localStorage.setItem("projects_v3", JSON.stringify(projects));
 }
 
-// 工程管理元件
-function ProjectManager({ currentProject, setCurrentProject, projects, setProjects }) {
+// 預設的人工調整結構（五大項目）
+const defaultManualAdjust = {
+  material: 0,
+  purchase: 0,
+  manufacture: 0,
+  transport: 0,
+  install: 0
+};
 
+// 多工程管理元件
+function ProjectManager({ currentProject, setCurrentProject, projects, setProjects }) {
+  
   // 新增工程
   function addProject() {
     const name = prompt("請輸入工程名稱：");
     if (!name) return;
 
     if (projects[name]) {
-      alert("工程名稱已存在");
+      alert("工程名稱已存在！");
       return;
     }
 
     const updated = {
       ...projects,
-      [name]: { allItems: [], manualAdjust: 0 }
+      [name]: { allItems: [], manualAdjust: { ...defaultManualAdjust } }
     };
 
     setProjects(updated);
@@ -78,24 +133,23 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
 
   // 刪除工程
   function deleteProject(name) {
-    if (!window.confirm(`確定要刪除工程「${name}」？`)) return;
+    if (!window.confirm(`確定刪除工程「${name}」？`)) return;
 
     const updated = { ...projects };
     delete updated[name];
 
-    const nextKey = Object.keys(updated)[0] || "";
-
+    const next = Object.keys(updated)[0] || "";
     setProjects(updated);
-    setCurrentProject(nextKey);
+    setCurrentProject(next);
     saveProjects(updated);
   }
 
   return (
-    <div className="mb-4 p-3 bg-white rounded shadow">
-      <h2 className="text-lg font-bold mb-2">工程管理</h2>
+    <div className="bg-white p-4 rounded shadow mb-4 print-hidden">
+      <h2 className="text-lg font-bold mb-3">工程管理</h2>
+
       <div className="flex flex-wrap gap-2">
 
-        {/* 工程切換按鈕 */}
         {Object.keys(projects).map(key => (
           <button
             key={key}
@@ -128,114 +182,106 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
             刪除目前工程
           </button>
         )}
-
       </div>
     </div>
   );
 }
 /****************************************************
- * PART 3 — MaterialsPage Component
- * 材料成本（板材 / 型鋼）
- * 必須支援：
- *  - 板材(B1)：L、W、pcs、自動算面積、自動算重量
- *  - 型鋼(B2)：長度 len、支數 qty、自動算重量
- *  - 選單來源：材料資料庫（CSV）
+ * PART 3 — MaterialsPage（材料成本）
+ * 自動判斷板材 / 型鋼
+ * 顯示重量、金額、加入材料明細表
  ****************************************************/
 
 function MaterialsPage({ materialDB, addItemToProject }) {
+
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
-  const [mode, setMode] = React.useState(""); // "板材" or "型鋼"
-
-  // 板材用
   const [L, setL] = React.useState("");
   const [W, setW] = React.useState("");
   const [pcs, setPcs] = React.useState("");
-
-  // 型鋼用
-  const [lenVal, setLenVal] = React.useState("");
+  const [lenM, setLenM] = React.useState("");
   const [qty, setQty] = React.useState("");
 
-  // 從資料庫中取得分類
+  // 分類
   const categories = React.useMemo(() => {
-    const setCat = new Set();
-    materialDB.forEach(row => setCat.add(row.category));
-    return [...setCat];
+    const s = new Set();
+    materialDB.forEach(r => s.add(r.category));
+    return [...s];
   }, [materialDB]);
 
-  // 依分類取出 spec
+  // 規格
   const specs = React.useMemo(() => {
-    return materialDB
-      .filter(row => row.category === category)
-      .map(row => row.spec);
+    return materialDB.filter(r => r.category === category).map(r => r.spec);
   }, [category, materialDB]);
 
-  // 取得當前 spec 的資料（包含 weight 單位重、price 等）
+  // 取得所選 row
   const selectedRow = React.useMemo(() => {
-    return materialDB.find(row => row.category === category && row.spec === spec);
+    return materialDB.find(r => r.category === category && r.spec === spec);
   }, [category, spec, materialDB]);
 
+  // ⬇⬇⬇ 智慧判斷板材 or 型鋼
+  const isPlate = React.useMemo(() => {
+    if (!selectedRow) return false;
+    const key = (selectedRow.category + selectedRow.spec).toUpperCase();
+    return key.includes("板") || key.includes("PLATE");
+  }, [selectedRow]);
 
-  // 計算重量與金額
+  // 計算重量 & 金額
   let weight = 0;
   let subtotal = 0;
 
   if (selectedRow) {
     const unitWeight = parseFloat(selectedRow.weight || 0);
-    const unitPrice = parseFloat(selectedRow.price || 0);
+    const price = parseFloat(selectedRow.price || 0);
 
-    if (mode === "板材") {
-      const area = (parseFloat(L || 0) * parseFloat(W || 0)) / 1_000_000; // mm² → m²
-      weight = area * unitWeight * parseFloat(pcs || 0);
-      subtotal = weight * unitPrice;
+    if (isPlate) {
+      // 板材：輸入單位全部為 m
+      const area = Number(L || 0) * Number(W || 0);
+      weight = area * Number(pcs || 0) * unitWeight;
+    } else {
+      // 型鋼
+      weight = Number(lenM || 0) * Number(qty || 0) * unitWeight;
     }
-
-    if (mode === "型鋼") {
-      weight = parseFloat(lenVal || 0) * unitWeight * parseFloat(qty || 0);
-      subtotal = weight * unitPrice;
-    }
+    subtotal = weight * price;
   }
 
-  // 新增到工程資料
-  function addToProject() {
-    if (!category || !spec || !mode) {
-      alert("請先選擇分類、規格與模式！");
-      return;
-    }
-    if (mode === "板材" && (!L || !W || !pcs)) {
-      alert("板材模式請輸入 L / W / 片數");
-      return;
-    }
-    if (mode === "型鋼" && (!lenVal || !qty)) {
-      alert("型鋼模式請輸入長度與支數");
-      return;
+  const fmt = (n) => Number(n).toLocaleString();
+
+  function addToList() {
+    if (!category || !spec) return alert("請選擇分類與規格");
+
+    if (isPlate) {
+      if (!L || !W || !pcs) return alert("板材請輸入長/寬/片數");
+    } else {
+      if (!lenM || !qty) return alert("型鋼請輸入長度/支數");
     }
 
     const item = {
       type: "材料",
       category,
       spec,
-      mode,
+      isPlate,
       L,
       W,
       pcs,
-      lenVal,
+      lenM,
       qty,
-      weight,
-      price: selectedRow ? selectedRow.price : 0,
-      subtotal
+      weight: Number(weight.toFixed(2)),
+      price: selectedRow.price,
+      subtotal: Number(subtotal.toFixed(0)),
     };
 
     addItemToProject(item);
 
-    // 清除輸入
+    // 清空欄位
     setSpec("");
     setL(""); setW(""); setPcs("");
-    setLenVal(""); setQty("");
+    setLenM(""); setQty("");
   }
 
   return (
-    <div className="p-4 bg-white rounded shadow">
+    <div className="p-4 bg-white rounded shadow mb-6">
+
       <h2 className="text-xl font-bold mb-4">材料成本</h2>
 
       {/* 分類 */}
@@ -243,8 +289,206 @@ function MaterialsPage({ materialDB, addItemToProject }) {
         <label className="font-bold">分類：</label>
         <select
           value={category}
-          onChange={e => { setCategory(e.target.value); setSpec(""); }}
+          onChange={(e) => { setCategory(e.target.value); setSpec(""); }}
           className="border px-2 py-1 rounded ml-2"
+        >
+          <option value="">請選擇分類</option>
+          {categories.map(c => <option key={c}>{c}</option>)}
+        </select>
+      </div>
+
+      {/* 規格 */}
+      {category && (
+        <div className="mb-3">
+          <label className="font-bold">規格：</label>
+          <select
+            value={spec}
+            onChange={(e) => setSpec(e.target.value)}
+            className="border px-2 py-1 rounded ml-2"
+          >
+            <option value="">請選擇規格</option>
+            {specs.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* 輸入欄位 */}
+      {selectedRow && (
+        <div className="mb-4">
+          {isPlate ? (
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="font-bold">長 (m)：</label>
+                <input value={L} onChange={e => setL(e.target.value)} className="border w-full px-2 py-1 rounded"/>
+              </div>
+              <div>
+                <label className="font-bold">寬 (m)：</label>
+                <input value={W} onChange={e => setW(e.target.value)} className="border w-full px-2 py-1 rounded"/>
+              </div>
+              <div>
+                <label className="font-bold">片數：</label>
+                <input value={pcs} onChange={e => setPcs(e.target.value)} className="border w-full px-2 py-1 rounded"/>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="font-bold">長度 (m)：</label>
+                <input value={lenM} onChange={e => setLenM(e.target.value)} className="border w-full px-2 py-1 rounded"/>
+              </div>
+              <div>
+                <label className="font-bold">支數：</label>
+                <input value={qty} onChange={e => setQty(e.target.value)} className="border w-full px-2 py-1 rounded"/>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 計算結果 */}
+      {selectedRow && (
+        <div className="p-3 mb-4 rounded border bg-gray-50">
+          <div>重量：<b>{weight.toFixed(2)}</b> kg</div>
+          <div>小計：<b>{fmt(subtotal)}</b> 元</div>
+        </div>
+      )}
+
+      {/* 加入明細 */}
+      <button
+        onClick={addToList}
+        className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
+      >
+        ＋ 加入成本明細表
+      </button>
+
+    </div>
+  );
+}
+/****************************************************
+ * PART 4 — MaterialsPage（新版，無模式選單）
+ * 自動判斷是否為板材（分類含「板」）
+ * 板材公式：
+ *   重量 = L(m) × W(m) × unitWeight(kg/m²) × pcs
+ * 型鋼公式：
+ *   重量 = 長度(m) × qty × unitWeight(kg/m)
+ ****************************************************/
+
+function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectData }) {
+  const [category, setCategory] = React.useState("");
+  const [spec, setSpec] = React.useState("");
+
+  // 板材輸入
+  const [L, setL] = React.useState("");
+  const [W, setW] = React.useState("");
+  const [pcs, setPcs] = React.useState("");
+
+  // 型鋼輸入
+  const [lenVal, setLenVal] = React.useState("");
+  const [qty, setQty] = React.useState("");
+
+  // 取得分類選項
+  const categories = React.useMemo(() => {
+    const s = new Set();
+    materialDB.forEach(r => s.add(r.category));
+    return [...s];
+  }, [materialDB]);
+
+  // 取得規格
+  const specs = React.useMemo(() => {
+    return materialDB
+      .filter(r => r.category === category)
+      .map(r => r.spec);
+  }, [category, materialDB]);
+
+  // 選到的資料列
+  const selectedRow = React.useMemo(() => {
+    return materialDB.find(r => r.category === category && r.spec === spec);
+  }, [category, spec, materialDB]);
+
+  // 自動判斷是否為板材（包含「板」）
+  const isPlate = React.useMemo(() => {
+    if (!category) return false;
+    return category.includes("板");  // ★ 依你的指定
+  }, [category]);
+
+  // 計算重量 & 小計
+  let weight = 0;
+  let subtotal = 0;
+  if (selectedRow) {
+    const unitWeight = parseFloat(selectedRow.weight || 0);
+    const unitPrice = parseFloat(selectedRow.price || 0);
+
+    if (isPlate) {
+      const Lm = parseFloat(L || 0);
+      const Wm = parseFloat(W || 0);
+      const P = parseFloat(pcs || 0);
+      weight = Lm * Wm * unitWeight * P;
+    } else {
+      const len = parseFloat(lenVal || 0);
+      const q = parseFloat(qty || 0);
+      weight = len * q * unitWeight;
+    }
+
+    subtotal = weight * unitPrice;
+  }
+
+  function addToList() {
+    if (!category || !spec) {
+      alert("請選擇分類與規格");
+      return;
+    }
+
+    if (isPlate && (!L || !W || !pcs)) {
+      alert("板材請輸入 L / W / 片數");
+      return;
+    }
+
+    if (!isPlate && (!lenVal || !qty)) {
+      alert("型鋼請輸入長度 / 支數");
+      return;
+    }
+
+    const item = {
+      type: "材料",
+      category,
+      spec,
+      isPlate,
+      L, W, pcs,
+      lenVal, qty,
+      weight: parseFloat(weight.toFixed(2)),
+      price: selectedRow ? selectedRow.price : 0,
+      subtotal: Math.round(subtotal)
+    };
+
+    // 寫入工程資料
+    const updated = {
+      ...projectData,
+      allItems: [...projectData.allItems, item]
+    };
+
+    setProjectData(updated);
+
+    // 清空欄位
+    setL(""); setW(""); setPcs("");
+    setLenVal(""); setQty("");
+  }
+
+  // 材料專屬明細表
+  const materialItems = projectData.allItems.filter(i => i.type === "材料");
+
+  const totalWeight = materialItems.reduce((sum, i) => sum + (i.weight || 0), 0);
+
+  return (
+    <div className="p-4 bg-white rounded shadow">
+      <h2 className="text-xl font-bold mb-4">材料成本（自動辨識板材 / 型鋼）</h2>
+
+      {/* 分類 */}
+      <div className="mb-3">
+        <label className="font-bold">分類：</label>
+        <select
+          value={category}
+          onChange={e => { setCategory(e.target.value); setSpec(""); }}
+          className="border px-2 py-1 ml-2 rounded"
         >
           <option value="">請選擇分類</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -258,7 +502,7 @@ function MaterialsPage({ materialDB, addItemToProject }) {
           <select
             value={spec}
             onChange={e => setSpec(e.target.value)}
-            className="border px-2 py-1 rounded ml-2"
+            className="border px-2 py-1 ml-2 rounded"
           >
             <option value="">請選擇規格</option>
             {specs.map(s => <option key={s} value={s}>{s}</option>)}
@@ -266,109 +510,131 @@ function MaterialsPage({ materialDB, addItemToProject }) {
         </div>
       )}
 
-      {/* 選擇模式 */}
+      {/* 自動顯示：板材 or 型鋼欄位 */}
       {spec && (
         <div className="mb-3">
-          <label className="font-bold">模式：</label>
-          <select
-            value={mode}
-            onChange={e => { setMode(e.target.value); }}
-            className="border px-2 py-1 rounded ml-2"
-          >
-            <option value="">請選擇模式</option>
-            <option value="板材">板材</option>
-            <option value="型鋼">型鋼</option>
-          </select>
+          <div className="text-blue-600 font-bold">
+            自動判斷模式：{isPlate ? "板材（m × m）" : "型鋼（m × 支數）"}
+          </div>
         </div>
       )}
 
-      {/* 板材模式 */}
-      {mode === "板材" && (
+      {/* 板材輸入 */}
+      {isPlate && spec && (
         <div className="grid grid-cols-3 gap-4 mb-4">
           <div>
-            <label className="font-bold">長度 L (mm)：</label>
-            <input value={L} onChange={e => setL(e.target.value)} className="border w-full px-2 py-1 rounded" />
+            <label className="font-bold">長度 L (m)：</label>
+            <input value={L} onChange={e => setL(e.target.value)} className="border px-2 py-1 w-full rounded" />
           </div>
           <div>
-            <label className="font-bold">寬度 W (mm)：</label>
-            <input value={W} onChange={e => setW(e.target.value)} className="border w-full px-2 py-1 rounded" />
+            <label className="font-bold">寬度 W (m)：</label>
+            <input value={W} onChange={e => setW(e.target.value)} className="border px-2 py-1 w-full rounded" />
           </div>
           <div>
             <label className="font-bold">片數 pcs：</label>
-            <input value={pcs} onChange={e => setPcs(e.target.value)} className="border w-full px-2 py-1 rounded" />
+            <input value={pcs} onChange={e => setPcs(e.target.value)} className="border px-2 py-1 w-full rounded" />
           </div>
         </div>
       )}
 
-      {/* 型鋼模式 */}
-      {mode === "型鋼" && (
+      {/* 型鋼輸入 */}
+      {!isPlate && spec && (
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
-            <label className="font-bold">長度 len (m)：</label>
-            <input value={lenVal} onChange={e => setLenVal(e.target.value)} className="border w-full px-2 py-1 rounded" />
+            <label className="font-bold">長度 (m)：</label>
+            <input value={lenVal} onChange={e => setLenVal(e.target.value)} className="border px-2 py-1 w-full rounded" />
           </div>
           <div>
-            <label className="font-bold">支數 qty：</label>
-            <input value={qty} onChange={e => setQty(e.target.value)} className="border w-full px-2 py-1 rounded" />
+            <label className="font-bold">支數：</label>
+            <input value={qty} onChange={e => setQty(e.target.value)} className="border px-2 py-1 w-full rounded" />
           </div>
         </div>
       )}
 
-      {/* 計算結果 */}
-      {selectedRow && mode && (
+      {/* 結果顯示 */}
+      {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-4">
           <div>重量：<b>{weight.toFixed(2)}</b> kg</div>
-          <div>小計：<b>{subtotal.toFixed(0)}</b> 元</div>
+          <div>小計：<b>{subtotal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}</b> 元</div>
         </div>
       )}
 
-      {/* 加入工程 */}
+      {/* 加入明細表 */}
       <button
-        onClick={addToProject}
+        onClick={addToList}
         className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
       >
-        ＋ 加入工程
+        ＋ 加入成本明細表
       </button>
+
+      {/* 材料明細表 */}
+      <h3 className="text-lg font-bold mt-6 mb-2">材料成本明細</h3>
+      <table className="w-full border mb-4">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="border px-2 py-1">分類</th>
+            <th className="border px-2 py-1">規格</th>
+            <th className="border px-2 py-1">重量(kg)</th>
+            <th className="border px-2 py-1">小計(元)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {materialItems.map((i, idx) => (
+            <tr key={idx}>
+              <td className="border px-2 py-1">{i.category}</td>
+              <td className="border px-2 py-1">{i.spec}</td>
+              <td className="border px-2 py-1">{i.weight.toFixed(2)}</td>
+              <td className="border px-2 py-1">
+                {i.subtotal.toLocaleString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* 總重量 */}
+      <div className="font-bold text-right">
+        材料總重量：{totalWeight.toFixed(2)} kg
+      </div>
     </div>
   );
 }
 /****************************************************
- * PART 4 — PurchasePage Component
- * 市購品：
- *  - 選擇分類 → 規格(spec)
- *  - 顯示單價
- *  - 輸入數量 → 小計
- *  - 加入工程資料
+ * PART 5 — PurchasePage（市購品）
+ * - 選分類 → 規格
+ * - 顯示單位 / 單價
+ * - 數量 × 單價 → 小計
+ * - 加入成本明細表
  ****************************************************/
 
-function PurchasePage({ purchaseDB, addItemToProject }) {
+function PurchasePage({ purchaseDB, projectData, setProjectData }) {
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
   const [qty, setQty] = React.useState("");
 
-  // 取得分類
+  // 分類選項
   const categories = React.useMemo(() => {
     const s = new Set();
     purchaseDB.forEach(r => s.add(r.category));
     return [...s];
   }, [purchaseDB]);
 
-  // 依分類取得 spec
+  // 規格選項
   const specs = React.useMemo(() => {
     return purchaseDB
       .filter(r => r.category === category)
       .map(r => r.spec);
   }, [category, purchaseDB]);
 
-  // 取得所選 spec 資料
+  // 選到資料
   const selectedRow = React.useMemo(() => {
     return purchaseDB.find(r => r.category === category && r.spec === spec);
   }, [category, spec, purchaseDB]);
 
-  const unitPrice = selectedRow ? parseFloat(selectedRow.price || 0) : 0;
-  const subtotal = unitPrice * parseFloat(qty || 0);
+  const price = selectedRow ? parseFloat(selectedRow.price || 0) : 0;
+  const subtotal = Math.round(price * parseFloat(qty || 0));
 
-  function addToProject() {
+  function addToList() {
     if (!category || !spec) {
       alert("請選擇分類與品項");
       return;
@@ -382,18 +648,28 @@ function PurchasePage({ purchaseDB, addItemToProject }) {
       type: "市購品",
       category,
       spec,
-      qty,
-      price: unitPrice,
+      qty: Number(qty),
+      price,
       subtotal
     };
 
-    addItemToProject(item);
+    // 加入工程資料
+    const updated = {
+      ...projectData,
+      allItems: [...projectData.allItems, item]
+    };
+
+    setProjectData(updated);
+
     setSpec("");
     setQty("");
   }
 
+  const items = projectData.allItems.filter(i => i.type === "市購品");
+
   return (
     <div className="p-4 bg-white rounded shadow">
+
       <h2 className="text-xl font-bold mb-4">市購品</h2>
 
       {/* 分類 */}
@@ -424,11 +700,11 @@ function PurchasePage({ purchaseDB, addItemToProject }) {
         </div>
       )}
 
-      {/* 顯示單價 */}
+      {/* 單價 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-3">
           <div>單位：{selectedRow.unit}</div>
-          <div>單價：<b>{unitPrice}</b> 元</div>
+          <div>單價：<b>{price.toLocaleString()}</b> 元</div>
         </div>
       )}
 
@@ -437,8 +713,8 @@ function PurchasePage({ purchaseDB, addItemToProject }) {
         <div className="mb-4">
           <label className="font-bold">數量：</label>
           <input
-            type="number"
             value={qty}
+            type="number"
             onChange={e => setQty(e.target.value)}
             className="border px-2 py-1 rounded ml-2 w-32"
           />
@@ -448,59 +724,84 @@ function PurchasePage({ purchaseDB, addItemToProject }) {
       {/* 小計 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-4">
-          小計：<b>{subtotal.toFixed(0)}</b> 元
+          小計：
+          <b>{subtotal.toLocaleString()}</b> 元
         </div>
       )}
 
-      {/* 加入工程 */}
+      {/* 加入明細 */}
       <button
-        onClick={addToProject}
-        className="px-4 py-2 bg-blue-600 text-white font-bold rounded"
+        onClick={addToList}
+        className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
       >
-        ＋ 加入工程
+        ＋ 加入成本明細表
       </button>
+
+      {/* 明細表 */}
+      <h3 className="mt-6 mb-2 text-lg font-bold">市購品明細</h3>
+
+      <table className="w-full border mb-4">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="border px-2 py-1">分類</th>
+            <th className="border px-2 py-1">品項</th>
+            <th className="border px-2 py-1">數量</th>
+            <th className="border px-2 py-1">小計</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {items.map((i, idx) => (
+            <tr key={idx}>
+              <td className="border px-2 py-1">{i.category}</td>
+              <td className="border px-2 py-1">{i.spec}</td>
+              <td className="border px-2 py-1">{i.qty}</td>
+              <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 /****************************************************
- * PART 5 — FabricationPage Component
- * 製作成本：
- *  - 選分類 → 項目
- *  - 顯示單位 / 單價
- *  - 輸入數量 → 小計
- *  - 加入工程資料
+ * PART 6 — FabricationPage（製作成本）
+ * - 選分類 → 項目
+ * - 顯示單位 / 單價
+ * - 數量 × 單價 → 小計
+ * - 加入成本明細表
  ****************************************************/
 
-function FabricationPage({ fabricationDB, addItemToProject }) {
+function FabricationPage({ fabricationDB, projectData, setProjectData }) {
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
   const [qty, setQty] = React.useState("");
 
   // 取得分類
   const categories = React.useMemo(() => {
-    const s = new Set();
-    fabricationDB.forEach(r => s.add(r.category));
-    return [...s];
+    const set = new Set();
+    fabricationDB.forEach(r => set.add(r.category));
+    return [...set];
   }, [fabricationDB]);
 
-  // 依分類取得 spec
+  // 依分類得到項目（spec）
   const specs = React.useMemo(() => {
     return fabricationDB
       .filter(r => r.category === category)
       .map(r => r.spec);
   }, [category, fabricationDB]);
 
-  // 取得所選 spec 資料
+  // 選到項目
   const selectedRow = React.useMemo(() => {
     return fabricationDB.find(r => r.category === category && r.spec === spec);
   }, [category, spec, fabricationDB]);
 
-  const unitPrice = selectedRow ? parseFloat(selectedRow.price || 0) : 0;
-  const subtotal = unitPrice * parseFloat(qty || 0);
+  const unitPrice = selectedRow ? Number(selectedRow.price) : 0;
+  const subtotal = Math.round(unitPrice * Number(qty || 0));
 
-  function addToProject() {
+  function addToList() {
     if (!category || !spec) {
-      alert("請先選擇分類與項目");
+      alert("請選擇分類與項目");
       return;
     }
     if (!qty) {
@@ -512,283 +813,28 @@ function FabricationPage({ fabricationDB, addItemToProject }) {
       type: "製作成本",
       category,
       spec,
-      qty,
+      qty: Number(qty),
       price: unitPrice,
       subtotal
     };
 
-    addItemToProject(item);
+    const updated = {
+      ...projectData,
+      allItems: [...projectData.allItems, item]
+    };
+
+    setProjectData(updated);
+
     setSpec("");
     setQty("");
   }
 
+  const items = projectData.allItems.filter(i => i.type === "製作成本");
+
   return (
     <div className="p-4 bg-white rounded shadow">
+
       <h2 className="text-xl font-bold mb-4">製作成本</h2>
-
-      {/* 分類 */}
-      <div className="mb-3">
-        <label className="font-bold">分類：</label>
-        <select
-          value={category}
-          onChange={e => { setCategory(e.target.value); setSpec(""); }}
-          className="border px-2 py-1 rounded ml-2"
-        >
-          <option value="">請選擇分類</option>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </div>
-
-      {/* 項目（spec） */}
-      {category && (
-        <div className="mb-3">
-          <label className="font-bold">項目：</label>
-          <select
-            value={spec}
-            onChange={e => setSpec(e.target.value)}
-            className="border px-2 py-1 rounded ml-2"
-          >
-            <option value="">請選擇項目</option>
-            {specs.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-      )}
-
-      {/* 單位 & 單價 */}
-      {selectedRow && (
-        <div className="p-3 bg-gray-50 border rounded mb-3">
-          <div>單位：{selectedRow.unit}</div>
-          <div>單價：<b>{unitPrice}</b> 元</div>
-        </div>
-      )}
-
-      {/* 數量 */}
-      {selectedRow && (
-        <div className="mb-4">
-          <label className="font-bold">數量：</label>
-          <input
-            type="number"
-            value={qty}
-            onChange={e => setQty(e.target.value)}
-            className="border px-2 py-1 rounded ml-2 w-32"
-          />
-        </div>
-      )}
-
-      {/* 小計 */}
-      {selectedRow && (
-        <div className="p-3 bg-gray-50 border rounded mb-4">
-          小計：<b>{subtotal.toFixed(0)}</b> 元
-        </div>
-      )}
-
-      {/* 加入工程 */}
-      <button
-        onClick={addToProject}
-        className="px-4 py-2 bg-blue-600 text-white font-bold rounded"
-      >
-        ＋ 加入工程
-      </button>
-    </div>
-  );
-}
-/****************************************************
- * PART 6 — TransportPage Component
- * 運輸費用：
- *  - 選分類（車種）
- *  - 選項目（spec）
- *  - region 不計算，但可顯示
- *  - 數量 → 小計
- ****************************************************/
-
-function TransportPage({ transportDB, addItemToProject }) {
-  const [category, setCategory] = React.useState("");
-  const [spec, setSpec] = React.useState("");
-  const [qty, setQty] = React.useState("");
-
-  // 取得分類
-  const categories = React.useMemo(() => {
-    const s = new Set();
-    transportDB.forEach(r => s.add(r.category));
-    return [...s];
-  }, [transportDB]);
-
-  // 取得 spec
-  const specs = React.useMemo(() => {
-    return transportDB
-      .filter(r => r.category === category)
-      .map(r => r.spec);
-  }, [category, transportDB]);
-
-  // 找到選擇的項目
-  const selectedRow = React.useMemo(() => {
-    return transportDB.find(r => r.category === category && r.spec === spec);
-  }, [category, spec, transportDB]);
-
-  const unitPrice = selectedRow ? parseFloat(selectedRow.price || 0) : 0;
-  const subtotal = unitPrice * parseFloat(qty || 0);
-
-  function addToProject() {
-    if (!category || !spec) {
-      alert("請選擇分類與項目");
-      return;
-    }
-    if (!qty) {
-      alert("請輸入數量");
-      return;
-    }
-
-    const item = {
-      type: "運輸費用",
-      category,
-      spec,
-      region: selectedRow ? selectedRow.region : "",
-      qty,
-      price: unitPrice,
-      subtotal
-    };
-
-    addItemToProject(item);
-
-    setSpec("");
-    setQty("");
-  }
-
-  return (
-    <div className="p-4 bg-white rounded shadow">
-      <h2 className="text-xl font-bold mb-4">運輸費用</h2>
-
-      {/* 分類 */}
-      <div className="mb-3">
-        <label className="font-bold">分類：</label>
-        <select
-          value={category}
-          onChange={e => { setCategory(e.target.value); setSpec(""); }}
-          className="border px-2 py-1 rounded ml-2"
-        >
-          <option value="">請選擇分類</option>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </div>
-
-      {/* 項目 */}
-      {category && (
-        <div className="mb-3">
-          <label className="font-bold">項目：</label>
-          <select
-            value={spec}
-            onChange={e => setSpec(e.target.value)}
-            className="border px-2 py-1 rounded ml-2"
-          >
-            <option value="">請選擇項目</option>
-            {specs.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-      )}
-
-      {/* 顯示 region / 單價 */}
-      {selectedRow && (
-        <div className="p-3 bg-gray-50 border rounded mb-3">
-          <div>地區（region）：{selectedRow.region || "無"}</div>
-          <div>單位：{selectedRow.unit}</div>
-          <div>單價：<b>{unitPrice}</b> 元</div>
-        </div>
-      )}
-
-      {/* 數量 */}
-      {selectedRow && (
-        <div className="mb-4">
-          <label className="font-bold">數量：</label>
-          <input
-            type="number"
-            value={qty}
-            onChange={e => setQty(e.target.value)}
-            className="border px-2 py-1 rounded ml-2 w-32"
-          />
-        </div>
-      )}
-
-      {/* 小計 */}
-      {selectedRow && (
-        <div className="p-3 bg-gray-50 border rounded mb-4">
-          小計：<b>{subtotal.toFixed(0)}</b> 元
-        </div>
-      )}
-
-      {/* 加入工程 */}
-      <button
-        onClick={addToProject}
-        className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
-      >
-        ＋ 加入工程
-      </button>
-    </div>
-  );
-}
-/****************************************************
- * PART 7 — InstallPage Component
- * 現場安裝：
- *  - 選分類 → 規格
- *  - 顯示單位 / 單價
- *  - 數量 → 小計
- *  - 加入工程項目
- ****************************************************/
-
-function InstallPage({ installDB, addItemToProject }) {
-  const [category, setCategory] = React.useState("");
-  const [spec, setSpec] = React.useState("");
-  const [qty, setQty] = React.useState("");
-
-  // 取得所有分類
-  const categories = React.useMemo(() => {
-    const s = new Set();
-    installDB.forEach(r => s.add(r.category));
-    return [...s];
-  }, [installDB]);
-
-  // 依分類選規格 spec
-  const specs = React.useMemo(() => {
-    return installDB
-      .filter(r => r.category === category)
-      .map(r => r.spec);
-  }, [category, installDB]);
-
-  // 尋找所選規格
-  const selectedRow = React.useMemo(() => {
-    return installDB.find(r => r.category === category && r.spec === spec);
-  }, [category, spec, installDB]);
-
-  const unitPrice = selectedRow ? parseFloat(selectedRow.price || 0) : 0;
-  const subtotal = unitPrice * parseFloat(qty || 0);
-
-  function addToProject() {
-    if (!category || !spec) {
-      alert("請選擇分類與項目");
-      return;
-    }
-    if (!qty) {
-      alert("請輸入數量");
-      return;
-    }
-
-    const item = {
-      type: "現場安裝",
-      category,
-      spec,
-      qty,
-      price: unitPrice,
-      subtotal
-    };
-
-    addItemToProject(item);
-
-    setSpec("");
-    setQty("");
-  }
-
-  return (
-    <div className="p-4 bg-white rounded shadow">
-      <h2 className="text-xl font-bold mb-4">現場安裝</h2>
 
       {/* 分類 */}
       <div className="mb-3">
@@ -805,6 +851,346 @@ function InstallPage({ installDB, addItemToProject }) {
         </select>
       </div>
 
+      {/* 項目 */}
+      {category && (
+        <div className="mb-3">
+          <label className="font-bold">項目：</label>
+          <select
+            value={spec}
+            onChange={e => setSpec(e.target.value)}
+            className="border px-2 py-1 ml-2 rounded"
+          >
+            <option value="">請選擇項目</option>
+            {specs.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 單價顯示 */}
+      {selectedRow && (
+        <div className="p-3 bg-gray-50 border rounded mb-3">
+          <div>單位：{selectedRow.unit}</div>
+          <div>單價：<b>{unitPrice.toLocaleString()}</b> 元</div>
+        </div>
+      )}
+
+      {/* 數量 */}
+      {selectedRow && (
+        <div className="mb-4">
+          <label className="font-bold">數量：</label>
+          <input
+            value={qty}
+            onChange={e => setQty(e.target.value)}
+            type="number"
+            className="border px-2 py-1 ml-2 w-32 rounded"
+          />
+        </div>
+      )}
+
+      {/* 小計 */}
+      {selectedRow && (
+        <div className="p-3 bg-gray-50 border rounded mb-4">
+          小計：<b>{subtotal.toLocaleString()}</b> 元
+        </div>
+      )}
+
+      {/* 加入明細 */}
+      <button
+        onClick={addToList}
+        className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
+      >
+        ＋ 加入成本明細表
+      </button>
+
+      {/* 明細表 */}
+      <h3 className="mt-6 mb-2 text-lg font-bold">製作成本明細</h3>
+
+      <table className="w-full border mb-4">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="border px-2 py-1">分類</th>
+            <th className="border px-2 py-1">項目</th>
+            <th className="border px-2 py-1">數量</th>
+            <th className="border px-2 py-1">小計</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {items.map((i, idx) => (
+            <tr key={idx}>
+              <td className="border px-2 py-1">{i.category}</td>
+              <td className="border px-2 py-1">{i.spec}</td>
+              <td className="border px-2 py-1">{i.qty}</td>
+              <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+    </div>
+  );
+}
+/****************************************************
+ * PART 7 — TransportPage（運輸費用）
+ * - 選分類 → 項目
+ * - 顯示地區、單位、單價
+ * - 數量 × 單價 → 小計
+ * - 加入成本明細表
+ ****************************************************/
+
+function TransportPage({ transportDB, projectData, setProjectData }) {
+  const [category, setCategory] = React.useState("");
+  const [spec, setSpec] = React.useState("");
+  const [qty, setQty] = React.useState("");
+
+  // 取得分類
+  const categories = React.useMemo(() => {
+    const s = new Set();
+    transportDB.forEach(r => s.add(r.category));
+    return [...s];
+  }, [transportDB]);
+
+  // 規格
+  const specs = React.useMemo(() => {
+    return transportDB
+      .filter(r => r.category === category)
+      .map(r => r.spec);
+  }, [category, transportDB]);
+
+  // 選到的資料
+  const selectedRow = React.useMemo(() => {
+    return transportDB.find(r => r.category === category && r.spec === spec);
+  }, [category, spec, transportDB]);
+
+  const price = selectedRow ? Number(selectedRow.price) : 0;
+  const subtotal = Math.round(price * Number(qty || 0));
+
+  function addToList() {
+    if (!category || !spec) {
+      alert("請選擇分類與項目");
+      return;
+    }
+    if (!qty) {
+      alert("請輸入數量");
+      return;
+    }
+
+    const item = {
+      type: "運輸費用",
+      category,
+      spec,
+      region: selectedRow?.region || "",
+      qty: Number(qty),
+      price,
+      subtotal
+    };
+
+    const updated = {
+      ...projectData,
+      allItems: [...projectData.allItems, item]
+    };
+
+    setProjectData(updated);
+
+    setSpec("");
+    setQty("");
+  }
+
+  const items = projectData.allItems.filter(i => i.type === "運輸費用");
+
+  return (
+    <div className="p-4 bg-white rounded shadow">
+
+      <h2 className="text-xl font-bold mb-4">運輸費用</h2>
+
+      {/* 分類 */}
+      <div className="mb-3">
+        <label className="font-bold">車種 / 分類：</label>
+        <select
+          value={category}
+          onChange={e => { setCategory(e.target.value); setSpec(""); }}
+          className="border px-2 py-1 ml-2 rounded"
+        >
+          <option value="">請選擇</option>
+          {categories.map(c => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 項目 */}
+      {category && (
+        <div className="mb-3">
+          <label className="font-bold">項目：</label>
+          <select
+            value={spec}
+            onChange={e => setSpec(e.target.value)}
+            className="border px-2 py-1 ml-2 rounded"
+          >
+            <option value="">請選擇項目</option>
+            {specs.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 顯示地區、單價 */}
+      {selectedRow && (
+        <div className="p-3 bg-gray-50 border rounded mb-3">
+          <div>地區：{selectedRow.region || "—"}</div>
+          <div>單位：{selectedRow.unit}</div>
+          <div>單價：<b>{price.toLocaleString()}</b> 元</div>
+        </div>
+      )}
+
+      {/* 數量 */}
+      {selectedRow && (
+        <div className="mb-4">
+          <label className="font-bold">數量：</label>
+          <input
+            value={qty}
+            onChange={e => setQty(e.target.value)}
+            type="number"
+            className="border px-2 py-1 ml-2 rounded w-32"
+          />
+        </div>
+      )}
+
+      {/* 小計 */}
+      {selectedRow && (
+        <div className="p-3 bg-gray-50 border rounded mb-4">
+          小計：<b>{subtotal.toLocaleString()}</b> 元
+        </div>
+      )}
+
+      {/* 加入明細 */}
+      <button
+        onClick={addToList}
+        className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
+      >
+        ＋ 加入成本明細表
+      </button>
+
+      {/* 明細表 */}
+      <h3 className="mt-6 mb-2 text-lg font-bold">運輸費用明細</h3>
+
+      <table className="w-full border mb-4">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="border px-2 py-1">分類</th>
+            <th className="border px-2 py-1">項目</th>
+            <th className="border px-2 py-1">地區</th>
+            <th className="border px-2 py-1">數量</th>
+            <th className="border px-2 py-1">小計</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {items.map((i, idx) => (
+            <tr key={idx}>
+              <td className="border px-2 py-1">{i.category}</td>
+              <td className="border px-2 py-1">{i.spec}</td>
+              <td className="border px-2 py-1">{i.region}</td>
+              <td className="border px-2 py-1">{i.qty}</td>
+              <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+    </div>
+  );
+}
+/****************************************************
+ * PART 8 — InstallPage（現場安裝）
+ * - 選分類 → 規格
+ * - 顯示單位 / 單價
+ * - 數量 × 單價 → 小計
+ * - 加入成本明細表
+ ****************************************************/
+
+function InstallPage({ installDB, projectData, setProjectData }) {
+  const [category, setCategory] = React.useState("");
+  const [spec, setSpec] = React.useState("");
+  const [qty, setQty] = React.useState("");
+
+  // 取得分類清單
+  const categories = React.useMemo(() => {
+    const s = new Set();
+    installDB.forEach(r => s.add(r.category));
+    return [...s];
+  }, [installDB]);
+
+  // 取得規格清單
+  const specs = React.useMemo(() => {
+    return installDB
+      .filter(r => r.category === category)
+      .map(r => r.spec);
+  }, [category, installDB]);
+
+  // 選中的資料列
+  const selectedRow = React.useMemo(() => {
+    return installDB.find(r => r.category === category && r.spec === spec);
+  }, [category, spec, installDB]);
+
+  const price = selectedRow ? Number(selectedRow.price) : 0;
+  const subtotal = Math.round(price * Number(qty || 0));
+
+  function addToList() {
+    if (!category || !spec) {
+      alert("請選擇分類與項目");
+      return;
+    }
+    if (!qty) {
+      alert("請輸入數量");
+      return;
+    }
+
+    const item = {
+      type: "現場安裝",
+      category,
+      spec,
+      qty: Number(qty),
+      price,
+      subtotal
+    };
+
+    const updated = {
+      ...projectData,
+      allItems: [...projectData.allItems, item]
+    };
+
+    setProjectData(updated);
+
+    setSpec("");
+    setQty("");
+  }
+
+  const items = projectData.allItems.filter(i => i.type === "現場安裝");
+
+  return (
+    <div className="p-4 bg-white rounded shadow">
+
+      <h2 className="text-xl font-bold mb-4">現場安裝</h2>
+
+      {/* 分類 */}
+      <div className="mb-3">
+        <label className="font-bold">分類：</label>
+        <select
+          value={category}
+          onChange={e => { setCategory(e.target.value); setSpec(""); }}
+          className="border px-2 py-1 rounded ml-2"
+        >
+          <option value="">請選擇</option>
+          {categories.map(c => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+      </div>
+
       {/* 規格 */}
       {category && (
         <div className="mb-3">
@@ -812,7 +1198,7 @@ function InstallPage({ installDB, addItemToProject }) {
           <select
             value={spec}
             onChange={e => setSpec(e.target.value)}
-            className="border px-2 py-1 ml-2 rounded"
+            className="border px-2 py-1 rounded ml-2"
           >
             <option value="">請選擇規格</option>
             {specs.map(s => (
@@ -822,11 +1208,11 @@ function InstallPage({ installDB, addItemToProject }) {
         </div>
       )}
 
-      {/* 顯示單位與單價 */}
+      {/* 單價顯示 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-4">
           <div>單位：{selectedRow.unit}</div>
-          <div>單價：<b>{unitPrice}</b> 元</div>
+          <div>單價：<b>{price.toLocaleString()}</b> 元</div>
         </div>
       )}
 
@@ -835,10 +1221,10 @@ function InstallPage({ installDB, addItemToProject }) {
         <div className="mb-4">
           <label className="font-bold">數量：</label>
           <input
-            type="number"
             value={qty}
             onChange={e => setQty(e.target.value)}
-            className="border px-2 py-1 ml-2 rounded w-32"
+            type="number"
+            className="border px-2 py-1 rounded ml-2 w-32"
           />
         </div>
       )}
@@ -846,306 +1232,290 @@ function InstallPage({ installDB, addItemToProject }) {
       {/* 小計 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-4">
-          小計：<b>{subtotal.toFixed(0)}</b> 元
+          小計：
+          <b>{subtotal.toLocaleString()}</b> 元
         </div>
       )}
 
-      {/* 加入工程 */}
+      {/* 加入明細 */}
       <button
-        onClick={addToProject}
+        onClick={addToList}
         className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
       >
-        ＋ 加入工程
+        ＋ 加入成本明細表
       </button>
+
+      {/* 安裝明細表 */}
+      <h3 className="mt-6 mb-2 text-lg font-bold">現場安裝明細</h3>
+
+      <table className="w-full border mb-4">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="border px-2 py-1">分類</th>
+            <th className="border px-2 py-1">規格</th>
+            <th className="border px-2 py-1">數量</th>
+            <th className="border px-2 py-1">小計</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {items.map((i, idx) => (
+            <tr key={idx}>
+              <td className="border px-2 py-1">{i.category}</td>
+              <td className="border px-2 py-1">{i.spec}</td>
+              <td className="border px-2 py-1">{i.qty}</td>
+              <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
     </div>
   );
 }
 /****************************************************
- * PART 8 — CSV Loader + Mode-C version sync
- * 功能：
- *   - 抓取五大 Google Sheet CSV
- *   - CSV → JSON parser
- *   - 版本比較（行數 + 第一列 + 最後一列）
- *   - 若版本一致 → 用 localStorage
- *   - 若版本不同 → 更新 localStorage
- *   - 回傳五大資料庫
+ * PART 9 — SummaryPage（總表）
+ * 五大成本加總 + 人工調整 + 管銷 + 毛利 + 圓餅圖
+ * 列印 + 匯出 Excel
  ****************************************************/
 
-// 五大 CSV URL
-const CSV_URLS = {
-  material:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=0&single=true&output=csv",
-  purchase:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1300343145&single=true&output=csv",
-  fabrication:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=1755952578&single=true&output=csv",
-  transport:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=11669107&single=true&output=csv",
-  install:
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AmTB3LJQYXPtKDAyY3efChJ1EMU5qlAfMzZ33_qqcVPhIAinukL8IVGq8RTCpIOf7O_bf-xHh5My/pub?gid=183776968&single=true&output=csv",
-};
-
-
-// ★ 通用 CSV Parser：輸出 JSON array
-function parseCSV(text) {
-  const lines = text.trim().split("\n");
-  const headers = lines[0].split(",").map(h => h.trim());
-  const rows = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(",");
-    const obj = {};
-    headers.forEach((h, idx) => {
-      obj[h] = cols[idx] ? cols[idx].trim() : "";
-    });
-    rows.push(obj);
-  }
-  return rows;
-}
-
-// ★ 建立 version 字串（行數 + 第一列 + 最後一列）
-function buildVersion(rows) {
-  if (!rows.length) return "empty";
-
-  const first = JSON.stringify(rows[0]);
-  const last = JSON.stringify(rows[rows.length - 1]);
-  return `${rows.length}-${first}-${last}`;
-}
-
-// ★ 從 localStorage 讀資料（若資料不存在回傳 null）
-function loadLocalDB(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-// ★ 寫入 localStorage
-function saveLocalDB(key, data) {
-  localStorage.setItem(key, JSON.stringify(data));
-}
-
-// ★ Mode-C 同步總控制：回傳五大 DB 與版本資訊
-async function loadAllDBs() {
-  const results = {
-    materialDB: [],
-    purchaseDB: [],
-    fabricationDB: [],
-    transportDB: [],
-    installDB: [],
-    versionInfo: {},
-    syncTime: "",
-  };
-
-  const nowTime = new Date().toLocaleString();
-  results.syncTime = nowTime;
-
-  // 五大 DB 的 key
-  const keys = [
-    ["materialDB", CSV_URLS.material],
-    ["purchaseDB", CSV_URLS.purchase],
-    ["fabricationDB", CSV_URLS.fabrication],
-    ["transportDB", CSV_URLS.transport],
-    ["installDB", CSV_URLS.install],
-  ];
-
-  for (const [dbKey, url] of keys) {
-    try {
-      const resp = await fetch(url);
-      const text = await resp.text();
-      const parsed = parseCSV(text);
-
-      const version = buildVersion(parsed);
-      const localVersion = localStorage.getItem(dbKey + "_version");
-      const localDB = loadLocalDB(dbKey);
-
-      if (localDB && localVersion === version) {
-        // ★ 版本相同 → 使用 localStorage
-        results[dbKey] = localDB;
-        results.versionInfo[dbKey] = { version, source: "localStorage" };
-      } else {
-        // ★ 版本不同 → 更新 localStorage
-        results[dbKey] = parsed;
-        results.versionInfo[dbKey] = { version, source: "remote" };
-        saveLocalDB(dbKey, parsed);
-        localStorage.setItem(dbKey + "_version", version);
-      }
-    } catch (e) {
-      console.error("CSV 載入失敗：", dbKey, e);
-    }
-  }
-
-  // 儲存最後同步時間
-  localStorage.setItem("syncTime", nowTime);
-
-  return results;
-}
-/****************************************************
- * PART 9 — SummaryPage Component
- * 五大類別加總 + 圓餅圖 + manualAdjust
- ****************************************************/
-
-function SummaryPage({ projectData, setProjectData, syncTime }) {
-
-  const canvasRef = React.useRef(null);
+function SummaryPage({ projectData, setProjectData }) {
   const chartRef = React.useRef(null);
+  const chartInstance = React.useRef(null);
 
-  // 計算各類別金額
-  const summary = React.useMemo(() => {
-    const sum = {
-      材料: 0,
-      市購品: 0,
-      製作成本: 0,
-      運輸費用: 0,
-      現場安裝: 0,
-    };
+  // 五大類統計
+  const sumByType = type =>
+    projectData.allItems
+      .filter(i => i.type === type)
+      .reduce((a, b) => a + (b.subtotal || 0), 0);
 
-    if (projectData && projectData.allItems) {
-      projectData.allItems.forEach(item => {
-        if (sum[item.type] !== undefined) {
-          sum[item.type] += Number(item.subtotal || 0);
-        }
-      });
-    }
+  const materialSum = sumByType("材料");
+  const purchaseSum = sumByType("市購品");
+  const fabSum = sumByType("製作成本");
+  const transSum = sumByType("運輸費用");
+  const installSum = sumByType("現場安裝");
 
-    return sum;
-  }, [projectData]);
+  const fiveTotal = materialSum + purchaseSum + fabSum + transSum + installSum;
 
-  const total =
-    summary.材料 +
-    summary.市購品 +
-    summary.製作成本 +
-    summary.運輸費用 +
-    summary.現場安裝 +
-    Number(projectData?.manualAdjust || 0);
+  const manualAdjust = projectData.manualAdjust || 0;
 
+  const finalCost = fiveTotal + manualAdjust;
 
-  // 手動調整
-  function updateAdjust(v) {
-    const updated = {
-      ...projectData,
-      manualAdjust: Number(v || 0),
-    };
-    setProjectData(updated);
-  }
+  const [adminRate, setAdminRate] = React.useState(15);
+  const [profitRate, setProfitRate] = React.useState(35);
 
+  const adminFee = Math.round(finalCost * (adminRate / 100));
+  const suggestPrice = Math.round(
+    (finalCost + adminFee) / (1 - profitRate / 100)
+  );
 
-  // ★ 圓餅圖 render
+  // 建立圓餅圖
   React.useEffect(() => {
-    if (!canvasRef.current) return;
+    const ctx = chartRef.current.getContext("2d");
 
-    // 清除舊圖
-    if (chartRef.current) {
-      chartRef.current.destroy();
-      chartRef.current = null;
-    }
+    if (chartInstance.current) chartInstance.current.destroy();
 
-    const ctx = canvasRef.current.getContext("2d");
-
-    const labels = ["材料", "市購品", "製作成本", "運輸費用", "現場安裝"];
-    const values = [
-      summary.材料,
-      summary.市購品,
-      summary.製作成本,
-      summary.運輸費用,
-      summary.現場安裝,
-    ];
-
-    chartRef.current = new Chart(ctx, {
+    chartInstance.current = new Chart(ctx, {
       type: "pie",
       data: {
-        labels,
+        labels: ["材料", "市購品", "製作", "運輸", "安裝"],
         datasets: [
           {
-            data: values,
+            data: [materialSum, purchaseSum, fabSum, transSum, installSum],
             backgroundColor: [
-              "#2563eb", // 藍
-              "#16a34a", // 綠
-              "#f59e0b", // 黃
-              "#dc2626", // 紅
-              "#9333ea", // 紫
-            ],
-          },
-        ],
+              "#4B9CD3",
+              "#71C285",
+              "#F7B267",
+              "#E76F51",
+              "#6C5CE7"
+            ]
+          }
+        ]
       },
       options: {
         plugins: {
           datalabels: {
+            formatter: (value, ctx) => {
+              const total = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+              const pct = ((value / total) * 100).toFixed(1);
+              return `${pct}%`;
+            },
             color: "#fff",
-            formatter: (value) => value.toFixed(0),
+            font: { weight: "bold", size: 14 }
           },
-        },
-      },
-      plugins: [ChartDataLabels],
+          legend: { position: "bottom" }
+        }
+      }
     });
-  }, [summary]);
+  }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
+  // 匯出 Excel（使用 SheetJS）
+  function exportExcel() {
+    const wb = XLSX.utils.book_new();
+
+    function addSheet(name, rows) {
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    }
+
+    const addRows = type =>
+      projectData.allItems
+        .filter(i => i.type === type)
+        .map(i => ({
+          分類: i.category,
+          規格: i.spec,
+          數量: i.qty,
+          單價: i.price,
+          小計: i.subtotal
+        }));
+
+    addSheet("材料", addRows("材料"));
+    addSheet("市購品", addRows("市購品"));
+    addSheet("製作成本", addRows("製作成本"));
+    addSheet("運輸費用", addRows("運輸費用"));
+    addSheet("現場安裝", addRows("現場安裝"));
+
+    addSheet("總表", [
+      { 項目: "五大成本合計", 金額: fiveTotal },
+      { 項目: "人工調整", 金額: manualAdjust },
+      { 項目: "最終成本", 金額: finalCost },
+      { 項目: "管銷(%)", 金額: adminRate },
+      { 項目: "管銷費", 金額: adminFee },
+      { 項目: "毛利率(%)", 金額: profitRate },
+      { 項目: "建議售價", 金額: suggestPrice }
+    ]);
+
+    XLSX.writeFile(wb, "成本彙整表.xlsx");
+  }
 
   return (
     <div className="p-4 bg-white rounded shadow">
       <h2 className="text-xl font-bold mb-4">總表 Summary</h2>
 
-      {/* 加總表 */}
-      <table className="w-full mb-4 border">
+      {/* 圓餅圖 */}
+      <div className="flex justify-center my-4">
+        <canvas ref={chartRef} width="260" height="260"></canvas>
+      </div>
+
+      {/* 五大成本列表 */}
+      <table className="w-full border mb-6">
         <thead className="bg-gray-100">
           <tr>
-            <th className="border px-3 py-2">項目</th>
-            <th className="border px-3 py-2">金額 (元)</th>
+            <th className="border px-2 py-1">項目</th>
+            <th className="border px-2 py-1">金額</th>
+            <th className="border px-2 py-1">人工調整</th>
           </tr>
         </thead>
+
         <tbody>
-          <tr><td className="border px-3 py-2">材料</td><td className="border px-3 py-2">{summary.材料.toLocaleString()}</td></tr>
-          <tr><td className="border px-3 py-2">市購品</td><td className="border px-3 py-2">{summary.市購品.toLocaleString()}</td></tr>
-          <tr><td className="border px-3 py-2">製作成本</td><td className="border px-3 py-2">{summary.製作成本.toLocaleString()}</td></tr>
-          <tr><td className="border px-3 py-2">運輸費用</td><td className="border px-3 py-2">{summary.運輸費用.toLocaleString()}</td></tr>
-          <tr><td className="border px-3 py-2">現場安裝</td><td className="border px-3 py-2">{summary.現場安裝.toLocaleString()}</td></tr>
           <tr>
-            <td className="border px-3 py-2 font-bold">人工調整</td>
-            <td className="border px-3 py-2">
+            <td className="border px-2 py-1">材料成本</td>
+            <td className="border px-2 py-1">{materialSum.toLocaleString()}</td>
+            <td rowSpan="5" className="border px-2 py-1 align-top">
               <input
                 type="number"
-                value={projectData?.manualAdjust || 0}
-                onChange={e => updateAdjust(e.target.value)}
-                className="border px-2 py-1 w-32 rounded"
+                value={manualAdjust}
+                onChange={e =>
+                  setProjectData({
+                    ...projectData,
+                    manualAdjust: Number(e.target.value)
+                  })
+                }
+                className="border p-1 w-32"
               />
             </td>
           </tr>
-          <tr className="bg-blue-50 font-bold">
-            <td className="border px-3 py-2">總金額</td>
-            <td className="border px-3 py-2 text-blue-700">
-              {total.toLocaleString()}
-            </td>
+
+          <tr>
+            <td className="border px-2 py-1">市購品</td>
+            <td className="border px-2 py-1">{purchaseSum.toLocaleString()}</td>
+          </tr>
+
+          <tr>
+            <td className="border px-2 py-1">製作成本</td>
+            <td className="border px-2 py-1">{fabSum.toLocaleString()}</td>
+          </tr>
+
+          <tr>
+            <td className="border px-2 py-1">運輸費用</td>
+            <td className="border px-2 py-1">{transSum.toLocaleString()}</td>
+          </tr>
+
+          <tr>
+            <td className="border px-2 py-1">現場安裝</td>
+            <td className="border px-2 py-1">{installSum.toLocaleString()}</td>
           </tr>
         </tbody>
       </table>
 
-      {/* 圓餅圖 */}
-      <div className="flex justify-center mb-4">
-        <canvas ref={canvasRef} width="300" height="300"></canvas>
+      {/* 成本合計 */}
+      <div className="text-lg font-bold mb-2">
+        五大成本合計：{fiveTotal.toLocaleString()} 元
       </div>
 
-      {/* 最後同步時間 */}
-      <div className="text-sm text-gray-500">
-        最後資料同步時間： {syncTime || "尚未同步"}
+      <div className="text-lg font-bold mb-2">
+        最終成本（含人工調整）：{finalCost.toLocaleString()} 元
+      </div>
+
+      {/* 管銷 */}
+      <div className="mb-4">
+        <label className="font-bold">管銷(%)：</label>
+        <input
+          value={adminRate}
+          onChange={e => setAdminRate(Number(e.target.value))}
+          type="number"
+          className="border p-1 w-20 ml-2"
+        />
+        <span className="ml-4">管銷費：<b>{adminFee.toLocaleString()}</b> 元</span>
+      </div>
+
+      {/* 毛利率 */}
+      <div className="mb-4">
+        <label className="font-bold">毛利率(%)：</label>
+        <input
+          value={profitRate}
+          onChange={e => setProfitRate(Number(e.target.value))}
+          type="number"
+          className="border p-1 w-20 ml-2"
+        />
+        <span className="ml-4">建議售價：<b>{suggestPrice.toLocaleString()}</b> 元</span>
+      </div>
+
+      {/* 按鈕 */}
+      <div className="flex gap-4 mt-6">
+        <button
+          onClick={() => window.print()}
+          className="px-4 py-2 bg-gray-700 text-white rounded"
+        >
+          列印
+        </button>
+
+        <button
+          onClick={exportExcel}
+          className="px-4 py-2 bg-green-600 text-white rounded"
+        >
+          匯出 Excel
+        </button>
       </div>
     </div>
   );
 }
 /****************************************************
- * PART 10 — App 主體
- * 功能：
- *  - 載入 CSV + version 同步
- *  - 工程管理 + 切換
- *  - Tab 分頁（A 版）
- *  - 五大頁面整合
- *  - 總表 SummaryPage
+ * PART 10 — App（主控制）
+ * - 多工程管理
+ * - Google Sheet 同步
+ * - 分頁切換
+ * - 渲染五大成本頁 + SummaryPage
  ****************************************************/
 
 function App() {
-  const [loading, setLoading] = React.useState(true);
+  const [projects, setProjects] = React.useState(loadProjects());
+  const [currentProject, setCurrentProject] = React.useState(
+    Object.keys(projects)[0] || ""
+  );
+
+  // 頁面切換
+  const [page, setPage] = React.useState("材料");
 
   // 五大資料庫
   const [materialDB, setMaterialDB] = React.useState([]);
@@ -1154,87 +1524,70 @@ function App() {
   const [transportDB, setTransportDB] = React.useState([]);
   const [installDB, setInstallDB] = React.useState([]);
 
-  const [syncTime, setSyncTime] = React.useState("");
+  // Google Sheet + localStorage 同步（模式 C）
+  async function fetchCSV(url) {
+    const text = await fetch(url).then(r => r.text());
+    const rows = text.split("\n").map(r => r.trim());
+    const version = `${rows.length}-${rows[0]}-${rows[rows.length - 1]}`;
+    return { rows, version };
+  }
 
-  // 工程資料
-  const [projects, setProjects] = React.useState(loadProjects());
-  const [currentProject, setCurrentProject] = React.useState(
-    Object.keys(loadProjects())[0] || ""
-  );
+  async function loadDB(name, url, setter) {
+    const local = localStorage.getItem("db_" + name);
+    const localV = localStorage.getItem("dbv_" + name);
 
-  // Tab 頁面
-  const tabs = ["材料", "市購品", "製作成本", "運輸", "現場安裝", "總表"];
-  const [activeTab, setActiveTab] = React.useState("材料");
+    const { rows, version } = await fetchCSV(url);
 
-  // ★ 初始化：載入五大資料庫（Mode-C）
-  React.useEffect(() => {
-    async function init() {
-      const r = await loadAllDBs();
-      setMaterialDB(r.materialDB);
-      setPurchaseDB(r.purchaseDB);
-      setFabricationDB(r.fabricationDB);
-      setTransportDB(r.transportDB);
-      setInstallDB(r.installDB);
+    if (local && localV === version) {
+      setter(JSON.parse(local));
+    } else {
+      const parsed = rows
+        .slice(1)
+        .map(r => r.split(","))
+        .filter(r => r.length >= 3)
+        .map(r => ({
+          category: r[0],
+          spec: r[1],
+          unit: r[2],
+          price: Number(r[3]),
+          density: Number(r[4] || 0),
+          region: r[5] || ""
+        }));
 
-      setSyncTime(r.syncTime);
-
-      setLoading(false);
+      setter(parsed);
+      localStorage.setItem("db_" + name, JSON.stringify(parsed));
+      localStorage.setItem("dbv_" + name, version);
+      localStorage.setItem("dbts_" + name, new Date().toISOString());
     }
-    init();
+  }
+
+  // 初始化，載入五大資料庫
+  React.useEffect(() => {
+    loadDB("material", MATERIAL_CSV, setMaterialDB);
+    loadDB("purchase", PURCHASE_CSV, setPurchaseDB);
+    loadDB("fabrication", FABRICATION_CSV, setFabricationDB);
+    loadDB("transport", TRANSPORT_CSV, setTransportDB);
+    loadDB("install", INSTALL_CSV, setInstallDB);
   }, []);
 
-  // ★ 若沒有工程，建立一個預設工程
-  React.useEffect(() => {
-    if (!currentProject && Object.keys(projects).length === 0) {
-      const def = { "新工程": { allItems: [], manualAdjust: 0 } };
-      setProjects(def);
-      setCurrentProject("新工程");
-      saveProjects(def);
-    }
-  }, []);
+  // 取得目前工程資料
+  const projectData = projects[currentProject] || {
+    allItems: [],
+    manualAdjust: 0
+  };
 
-  // ★ 取得目前工程資料
-  const projectData = projects[currentProject] || { allItems: [], manualAdjust: 0 };
-
-  // ★ 更新目前工程資料（SummaryPage 或其他頁面會用到）
-  function setProjectData(newData) {
+  // 更新目前工程資料
+  function updateProjectData(newData) {
     const updated = {
       ...projects,
-      [currentProject]: newData,
+      [currentProject]: newData
     };
     setProjects(updated);
     saveProjects(updated);
-  }
-
-  // ★ 新增項目到工程
-  function addItemToProject(item) {
-    const updatedProject = {
-      ...projectData,
-      allItems: [...projectData.allItems, item],
-    };
-
-    const updated = {
-      ...projects,
-      [currentProject]: updatedProject,
-    };
-
-    setProjects(updated);
-    saveProjects(updated);
-  }
-
-
-  /* ------------------------- RENDER ------------------------- */
-
-  if (loading) {
-    return (
-      <div className="p-10 text-center text-xl">
-        ⏳ 正在同步 Google Sheet 資料，請稍候…
-      </div>
-    );
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-4">
+    <div className="p-4 max-w-5xl mx-auto">
 
       {/* 工程管理 */}
       <ProjectManager
@@ -1244,76 +1597,80 @@ function App() {
         setProjects={setProjects}
       />
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-4 border-b pb-2">
-        {tabs.map(t => (
+      {/* 分頁功能 */}
+      <div className="flex gap-2 mb-4">
+        {["材料", "市購品", "製作成本", "運輸費用", "現場安裝", "總表"].map(tab => (
           <button
-            key={t}
-            onClick={() => setActiveTab(t)}
+            key={tab}
+            onClick={() => setPage(tab)}
             className={
-              "px-4 py-2 rounded-t font-bold " +
-              (activeTab === t
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700")
+              "px-3 py-1 rounded border " +
+              (page === tab
+                ? "bg-blue-600 text-white border-blue-600"
+                : "bg-white text-gray-700 border-gray-400")
             }
           >
-            {t}
+            {tab}
           </button>
         ))}
       </div>
 
-      {/* 各分頁內容 */}
-      {activeTab === "材料" && (
+      {/* 頁面內容 */}
+      {page === "材料" && (
         <MaterialsPage
           materialDB={materialDB}
-          addItemToProject={addItemToProject}
+          projectData={projectData}
+          setProjectData={updateProjectData}
         />
       )}
 
-      {activeTab === "市購品" && (
+      {page === "市購品" && (
         <PurchasePage
           purchaseDB={purchaseDB}
-          addItemToProject={addItemToProject}
+          projectData={projectData}
+          setProjectData={updateProjectData}
         />
       )}
 
-      {activeTab === "製作成本" && (
+      {page === "製作成本" && (
         <FabricationPage
           fabricationDB={fabricationDB}
-          addItemToProject={addItemToProject}
+          projectData={projectData}
+          setProjectData={updateProjectData}
         />
       )}
 
-      {activeTab === "運輸" && (
+      {page === "運輸費用" && (
         <TransportPage
           transportDB={transportDB}
-          addItemToProject={addItemToProject}
+          projectData={projectData}
+          setProjectData={updateProjectData}
         />
       )}
 
-      {activeTab === "現場安裝" && (
+      {page === "現場安裝" && (
         <InstallPage
           installDB={installDB}
-          addItemToProject={addItemToProject}
+          projectData={projectData}
+          setProjectData={updateProjectData}
         />
       )}
 
-      {activeTab === "總表" && (
+      {page === "總表" && (
         <SummaryPage
           projectData={projectData}
-          setProjectData={setProjectData}
-          syncTime={syncTime}
+          setProjectData={updateProjectData}
         />
       )}
     </div>
   );
 }
 
+
 /****************************************************
- * ReactDOM Render
+ * 渲染 App
  ****************************************************/
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-
 </script>  <!-- ←←← 這個結束 script 是整站能否正常渲染的關鍵 -->
 
 </body>
