@@ -1377,35 +1377,30 @@ function App() {
       setter(JSON.parse(local));
     } else {
       const parsed = rows
-        .slice(1)
-        .map(r => r.split(","))
-.filter(r => r.length >= 3)
-.map(r => {
-  if (name === "transport") {
-    return parseTransportRow(r);   // ⭐ 運輸費用用這個
-  }
-  return {
-    category: r[0],
-    spec: r[1],
-    unit: r[2],
-    weight: Number(r[3] || 0),
-    price: Number(r[4] || 0),
-    region: r[5] || ""
-  };
-})
+  .slice(1)
+  .map(r => r.split(","))
+  .filter(r => r.length >= 3)
+  .map(r => {
+    // ⭐ 運輸費用用專屬解析
+    if (name === "transport") {
+      return parseTransportRow(r);
+    }
 
-          category: r[0],
-          spec: r[1],
-          unit: r[2],
-          weight: Number(r[3] || 0), 
-          price: Number(r[4] || 0),
-          region: r[5] || ""
-        }));
+    // ⭐ 其他四大成本
+    return {
+      category: r[0],
+      spec: r[1],
+      unit: r[2],
+      weight: Number(r[3] || 0),
+      price: Number(r[4] || 0),
+      region: r[5] || ""
+    };
+  });
 
-      setter(parsed);
-      localStorage.setItem("db_" + name, JSON.stringify(parsed));
-      localStorage.setItem("dbv_" + name, version);
-      localStorage.setItem("dbts_" + name, new Date().toISOString());
+setter(parsed);
+localStorage.setItem("db_" + name, JSON.stringify(parsed));
+localStorage.setItem("dbv_" + name, version);
+localStorage.setItem("dbts_" + name, new Date().toISOString());
     }
   }
 
