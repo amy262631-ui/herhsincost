@@ -1202,44 +1202,122 @@ React.useEffect(() => {
 
 }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
-  /*************** 匯出 Excel ***************/
-  function exportExcel() {
-    const wb = XLSX.utils.book_new();
+/*************** 匯出 Excel ***************/
+function exportExcel() {
+  const wb = XLSX.utils.book_new();
 
-    const addRows = type =>
-      projectData.allItems
-        .filter(i => i.type === type)
-        .map(i => ({
-          分類: i.category,
-          規格: i.spec,
-          數量: i.qty,
-          單價: i.price,
-          小計: i.subtotal
-        }));
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
 
-    function addSheet(name, rows) {
-      const ws = XLSX.utils.json_to_sheet(rows);
-      XLSX.utils.book_append_sheet(wb, ws, name);
-    }
+  const projectName = projectData.projectName || "未命名工程";
 
-    addSheet("材料", addRows("材料"));
-    addSheet("市購品", addRows("市購品"));
-    addSheet("製作成本", addRows("製作成本"));
-    addSheet("運輸費用", addRows("運輸費用"));
-    addSheet("現場安裝", addRows("現場安裝"));
+  const fileName = `${yyyy}${mm}${dd}-${projectName}-成本分析.xlsx`;
 
-    addSheet("總表", [
-      { 項目: "五大成本合計", 金額: fiveTotal },
-      { 項目: "人工調整合計", 金額: manualTotal },
-      { 項目: "最終成本", 金額: finalCost },
-      { 項目: "管銷(%)", 金額: adminRate },
-      { 項目: "管銷費", 金額: adminFee },
-      { 項目: "毛利率(%)", 金額: profitRate },
-      { 項目: "建議售價", 金額: suggestPrice }
+  const rows = [];
+
+  // === 工程名稱 ===
+  rows.push(["工程名稱：", projectName]);
+  rows.push([]);
+
+  // =========================
+  //   材料成本明細表
+  // =========================
+  rows.push(["材料成本明細表"]);
+  rows.push(["分類", "規格", "長m", "寬m", "數量", "重量", "單價", "小計"]);
+
+  const materialRows = projectData.allItems
+    .filter(i => i.type === "材料")
+    .map(i => [
+      i.category,
+      i.spec,
+      i.length || "",
+      i.width || "",
+      i.qty,
+      i.weight || "",
+      i.price,
+      i.subtotal
     ]);
 
-    XLSX.writeFile(wb, "成本彙整表.xlsx");
-  }
+  materialRows.forEach(r => rows.push(r));
+  rows.push(["合計", "", "", "", "", "", "", materialSum]);
+  rows.push([]);
+
+  // =========================
+  //   市購品成本明細表
+  // =========================
+  rows.push(["市購品成本明細表"]);
+  rows.push(["分類", "規格", "數量", "單價", "小計"]);
+
+  const purchaseRows = projectData.allItems
+    .filter(i => i.type === "市購品")
+    .map(i => [i.category, i.spec, i.qty, i.price, i.subtotal]);
+
+  purchaseRows.forEach(r => rows.push(r));
+  rows.push(["合計", "", "", "", purchaseSum]);
+  rows.push([]);
+
+  // =========================
+  //   製作成本明細表
+  // =========================
+  rows.push(["製作成本明細表"]);
+  rows.push(["分類", "規格", "數量", "單價", "小計"]);
+
+  const fabRows = projectData.allItems
+    .filter(i => i.type === "製作成本")
+    .map(i => [i.category, i.spec, i.qty, i.price, i.subtotal]);
+
+  fabRows.forEach(r => rows.push(r));
+  rows.push(["合計", "", "", "", fabSum]);
+  rows.push([]);
+
+  // =========================
+  //   運輸成本明細表
+  // =========================
+  rows.push(["運輸成本明細表"]);
+  rows.push(["分類", "規格", "數量", "單價", "小計"]);
+
+  const transRows = projectData.allItems
+    .filter(i => i.type === "運輸費用")
+    .map(i => [i.category, i.spec, i.qty, i.price, i.subtotal]);
+
+  transRows.forEach(r => rows.push(r));
+  rows.push(["合計", "", "", "", transSum]);
+  rows.push([]);
+
+  // =========================
+  //   現場安裝成本明細表
+  // =========================
+  rows.push(["現場安裝成本明細表"]);
+  rows.push(["分類", "規格", "數量", "單價", "小計"]);
+
+  const installRows = projectData.allItems
+    .filter(i => i.type === "現場安裝")
+    .map(i => [i.category, i.spec, i.qty, i.price, i.subtotal]);
+
+  installRows.forEach(r => rows.push(r));
+  rows.push(["合計", "", "", "", installSum]);
+  rows.push([]);
+
+  // =========================
+  //   成本統計總表
+  // =========================
+  rows.push(["", "項目", "金額"]);
+  rows.push(["", "五大成本合計", fiveTotal]);
+  rows.push(["", "人工調整合計", manualTotal]);
+  rows.push(["", "最終成本", finalCost]);
+  rows.push(["", "管銷(%)", adminRate]);
+  rows.push(["", "管銷費", adminFee]);
+  rows.push(["", "毛利率(%)", profitRate]);
+  rows.push(["", "建議售價", suggestPrice]);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, "成本分析");
+
+  XLSX.writeFile(wb, fileName);
+}
+
 
   /***************** JSX 輸出 *****************/
   return (
@@ -1550,6 +1628,7 @@ React.useEffect(() => {
 
   // 取得目前工程資料
   const projectData = projects[currentProject] || {
+    projectName: "",     // ← 加這一行
     allItems: [],
     manualAdjust: 0
   };
@@ -1566,6 +1645,23 @@ React.useEffect(() => {
 
   return (
     <div className="p-4 max-w-5xl mx-auto">
+
+      {/* 工程名稱輸入 */}
+<div className="mb-4 flex items-center gap-2">
+  <label className="font-bold">工程名稱：</label>
+  <input
+    type="text"
+    className="border px-2 py-1 rounded"
+    placeholder="請輸入工程名稱"
+    value={projectData.projectName || ""}
+    onChange={(e) => {
+      updateProjectData({
+        ...projectData,
+        projectName: e.target.value
+      });
+    }}
+  />
+</div>
 
       {/* 工程管理 */}
       <ProjectManager
