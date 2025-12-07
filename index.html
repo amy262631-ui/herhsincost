@@ -1153,11 +1153,11 @@ React.useEffect(() => {
   if (!ctx) return;
 
   const data = [
-    totalMaterial,
-    totalPurchase,
-    totalFabrication,
-    totalTransport,
-    totalInstall
+    materialSum,
+    purchaseSum,
+    fabSum,
+    transSum,
+    installSum
   ];
 
   const labels = ["材料", "市購品", "製作", "運輸", "安裝"];
@@ -1179,7 +1179,7 @@ React.useEffect(() => {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false,   // 解除固定比例 → 可縮小
+      maintainAspectRatio: false,
       plugins: {
         legend: {
           position: "bottom",
@@ -1198,7 +1198,7 @@ React.useEffect(() => {
       }
     }
   });
-}, [totalMaterial, totalPurchase, totalFabrication, totalTransport, totalInstall]);
+}, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
 
   // 匯出 Excel（使用 SheetJS）
@@ -1245,7 +1245,7 @@ React.useEffect(() => {
       <h2 className="text-xl font-bold mb-4">總表 Summary</h2>
 
 {/* 圓餅圖 */}
-<div style={{ width: "100%", height: "180px" }}>
+<div style={{ width: "40%", margin: "0 auto", height: "260px" }}>
   <canvas id="summaryChart"></canvas>
 </div>
 
