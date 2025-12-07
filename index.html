@@ -1260,59 +1260,125 @@ React.useEffect(() => {
         </thead>
 
         <tbody>
-          <tr>
-            <td className="border px-2 py-1">材料成本</td>
-            <td className="border px-2 py-1">{materialSum.toLocaleString()}</td>
-            <th className="border px-2 py-1">人工調整</th>
-            <td rowSpan="5" className="border px-2 py-1 align-top">
-              <input
-                type="number"
-                value={manualAdjust}
-                onChange={e =>
-                  setProjectData({
-                    ...projectData,
-                    manualAdjust: Number(e.target.value)
-                  })
-                }
-                className="border p-1 w-32"
-              />
-            </td>
-          </tr>
+  <tr>
+    <td className="border px-2 py-1">材料成本</td>
+    <td className="border px-2 py-1">{materialSum.toLocaleString()}</td>
+    <td className="border px-2 py-1">
+      <input
+        type="number"
+        value={manualAdjustDetail.material}
+        onChange={e =>
+          setProjectData({
+            ...projectData,
+            manualAdjustDetail: {
+              ...manualAdjustDetail,
+              material: Number(e.target.value)
+            }
+          })
+        }
+        className="border p-1 w-24"
+      />
+    </td>
+  </tr>
 
-          <tr>
-            <td className="border px-2 py-1">市購品</td>
-            <td className="border px-2 py-1">{purchaseSum.toLocaleString()}</td>
-            <th className="border px-2 py-1">人工調整</th>
-          </tr>
+  <tr>
+    <td className="border px-2 py-1">市購品</td>
+    <td className="border px-2 py-1">{purchaseSum.toLocaleString()}</td>
+    <td className="border px-2 py-1">
+      <input
+        type="number"
+        value={manualAdjustDetail.purchase}
+        onChange={e =>
+          setProjectData({
+            ...projectData,
+            manualAdjustDetail: {
+              ...manualAdjustDetail,
+              purchase: Number(e.target.value)
+            }
+          })
+        }
+        className="border p-1 w-24"
+      />
+    </td>
+  </tr>
 
-          <tr>
-            <td className="border px-2 py-1">製作成本</td>
-            <td className="border px-2 py-1">{fabSum.toLocaleString()}</td>
-            <th className="border px-2 py-1">人工調整</th>
-          </tr>
+  <tr>
+    <td className="border px-2 py-1">製作成本</td>
+    <td className="border px-2 py-1">{fabSum.toLocaleString()}</td>
+    <td className="border px-2 py-1">
+      <input
+        type="number"
+        value={manualAdjustDetail.fabrication}
+        onChange={e =>
+          setProjectData({
+            ...projectData,
+            manualAdjustDetail: {
+              ...manualAdjustDetail,
+              fabrication: Number(e.target.value)
+            }
+          })
+        }
+        className="border p-1 w-24"
+      />
+    </td>
+  </tr>
 
-          <tr>
-            <td className="border px-2 py-1">運輸費用</td>
-            <td className="border px-2 py-1">{transSum.toLocaleString()}</td>
-            <th className="border px-2 py-1">人工調整</th>
-          </tr>
+  <tr>
+    <td className="border px-2 py-1">運輸費用</td>
+    <td className="border px-2 py-1">{transSum.toLocaleString()}</td>
+    <td className="border px-2 py-1">
+      <input
+        type="number"
+        value={manualAdjustDetail.transport}
+        onChange={e =>
+          setProjectData({
+            ...projectData,
+            manualAdjustDetail: {
+              ...manualAdjustDetail,
+              transport: Number(e.target.value)
+            }
+          })
+        }
+        className="border p-1 w-24"
+      />
+    </td>
+  </tr>
 
-          <tr>
-            <td className="border px-2 py-1">現場安裝</td>
-            <td className="border px-2 py-1">{installSum.toLocaleString()}</td>
-            <th className="border px-2 py-1">人工調整</th>
-          </tr>
-        </tbody>
+  <tr>
+    <td className="border px-2 py-1">現場安裝</td>
+    <td className="border px-2 py-1">{installSum.toLocaleString()}</td>
+    <td className="border px-2 py-1">
+      <input
+        type="number"
+        value={manualAdjustDetail.install}
+        onChange={e =>
+          setProjectData({
+            ...projectData,
+            manualAdjustDetail: {
+              ...manualAdjustDetail,
+              install: Number(e.target.value)
+            }
+          })
+        }
+        className="border p-1 w-24"
+      />
+    </td>
+  </tr>
+</tbody>
       </table>
 
-      {/* 成本合計 */}
-      <div className="text-lg font-bold mb-2">
-        五大成本合計：{fiveTotal.toLocaleString()} 元
-      </div>
+{/* 成本合計 */}
+<div className="text-lg font-bold mb-2">
+  五大成本合計：{fiveTotal.toLocaleString()} 元
+</div>
 
-      <div className="text-lg font-bold mb-2">
-        最終成本（含人工調整）：{finalCost.toLocaleString()} 元
-      </div>
+<div className="text-lg font-bold mb-2">
+  人工調整合計：{manualTotal.toLocaleString()} 元
+</div>
+
+<div className="text-lg font-bold mb-2">
+  最終成本（含人工調整）：{finalCost.toLocaleString()} 元
+</div>
 
       {/* 管銷 */}
       <div className="mb-4">
