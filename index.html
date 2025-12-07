@@ -1114,7 +1114,7 @@ function InstallPage({ installDB, projectData, setProjectData }) {
 /****************************************************
  * PART 9 — SummaryPage（總表）
  ****************************************************/
-function SummaryPage({ projectData, setProjectData, currentProject }) {
+function SummaryPage({ projectData, currentProject }) {
   const chartRef = React.useRef(null);
 
   // 五大類金額小計
@@ -1741,7 +1741,6 @@ React.useEffect(() => {
       {page === "總表" && (
 <SummaryPage
   projectData={projectData}
-  setProjectData={setProjectData}
   currentProject={currentProject}
 />
       )}
