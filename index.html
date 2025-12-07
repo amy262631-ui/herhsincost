@@ -1114,7 +1114,7 @@ function InstallPage({ installDB, projectData, setProjectData }) {
 /****************************************************
  * PART 9 — SummaryPage（總表）
  ****************************************************/
-function SummaryPage({ projectData, currentProject, setProjectData }) {
+function SummaryPage({ projectData, currentProject, updateProjectData }) {
   const chartRef = React.useRef(null);
   /*************** 五大類成本小計 ***************/
   const sumByType = type =>
@@ -1150,20 +1150,20 @@ function SummaryPage({ projectData, currentProject, setProjectData }) {
   const adminFee = Math.round(finalCost * (adminRate / 100));
   const suggestPrice = Math.round((finalCost + adminFee) / (1 - profitRate / 100));
 
-  /*************** 更新人工調整數值（允許任意位數） ***************/
-  function updateManualAdjust(field, value) {
-    const num = value === "" ? "" : Number(value); // 允許空字串、不強制變 0
+/*************** 更新人工調整數值（允許任意位數） ***************/
+function updateManualAdjust(field, value) {
+  const num = value === "" ? "" : Number(value); // 允許空字串、不強制變 0
 
-    const newDetail = {
-      ...manualAdjustDetail,
-      [field]: num
-    };
+  const newDetail = {
+    ...manualAdjustDetail,
+    [field]: num
+  };
 
-    setProjectData({
-      ...projectData,
-      manualAdjustDetail: newDetail
-    });
-  }
+  updateProjectData({
+    ...projectData,
+    manualAdjustDetail: newDetail
+  });
+}
 
   /*************** 圓餅圖 ***************/
   React.useEffect(() => {
@@ -1581,7 +1581,7 @@ React.useEffect(() => {
   <SummaryPage
     projectData={projectData}
     currentProject={currentProject}
-    setProjectData={setProjectData}
+    updateProjectData={updateProjectData}
   />
 )}
     </div>
