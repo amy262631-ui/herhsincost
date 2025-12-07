@@ -465,38 +465,40 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
 }
 /****************************************************
  * PART 5 — PurchasePage（市購品）
- * - 選分類 → 規格
- * - 顯示單位 / 單價
- * - 數量 × 單價 → 小計
- * - 加入成本明細表
  ****************************************************/
 function PurchasePage({ purchaseDB, projectData, setProjectData }) {
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
   const [qty, setQty] = React.useState("");
 
-  // 分類選項
+  /* ===== 編輯模式用 ===== */
+  const [editIndex, setEditIndex] = React.useState(null);
+  const [editCategory, setEditCategory] = React.useState("");
+  const [editSpec, setEditSpec] = React.useState("");
+  const [editQty, setEditQty] = React.useState("");
+  const [editPrice, setEditPrice] = React.useState("");
+
+  /* ===== 選項 ===== */
   const categories = React.useMemo(() => {
     const s = new Set();
     purchaseDB.forEach(r => s.add(r.category));
     return [...s];
   }, [purchaseDB]);
 
-  // 規格選項
-  const specs = React.useMemo(() => {
-    return purchaseDB
-      .filter(r => r.category === category)
-      .map(r => r.spec);
-  }, [category, purchaseDB]);
+  const specs = React.useMemo(
+    () => purchaseDB.filter(r => r.category === category).map(r => r.spec),
+    [category, purchaseDB]
+  );
 
-  // 選到資料
-  const selectedRow = React.useMemo(() => {
-    return purchaseDB.find(r => r.category === category && r.spec === spec);
-  }, [category, spec, purchaseDB]);
+  const selectedRow = React.useMemo(
+    () => purchaseDB.find(r => r.category === category && r.spec === spec),
+    [category, spec, purchaseDB]
+  );
 
-  const price = selectedRow ? parseFloat(selectedRow.price || 0) : 0;
-  const subtotal = Math.round(price * parseFloat(qty || 0));
+  const price = selectedRow ? Number(selectedRow.price) : 0;
+  const subtotal = Math.round(price * Number(qty || 0));
 
+  /* ===== 新增明細 ===== */
   function addToList() {
     if (!category || !spec) {
       alert("請選擇分類與品項");
@@ -516,95 +518,93 @@ function PurchasePage({ purchaseDB, projectData, setProjectData }) {
       subtotal
     };
 
-    // 加入工程資料
-    const updated = {
+    setProjectData({
       ...projectData,
       allItems: [...projectData.allItems, item]
-    };
-
-    setProjectData(updated);
+    });
 
     setSpec("");
     setQty("");
   }
-// 刪除市購品（依照市購品清單的 index）
-function deletePurchase(deleteIndex) {
-  // 找出市購品在 allItems 中的實際 index
-  let realIndex = -1;
-  let counter = -1;
 
-  for (let i = 0; i < projectData.allItems.length; i++) {
-    if (projectData.allItems[i].type === "市購品") {
-      counter++;
-      if (counter === deleteIndex) {
-        realIndex = i;
-        break;
+  /* ===== 刪除 ===== */
+  function deletePurchase(deleteIndex) {
+    let count = -1;
+    let realIndex = -1;
+
+    projectData.allItems.forEach((it, i) => {
+      if (it.type === "市購品") {
+        count++;
+        if (count === deleteIndex) realIndex = i;
       }
-    }
-  }
-
-  if (realIndex >= 0) {
-    const newItems = [...projectData.allItems];
-    newItems.splice(realIndex, 1);
-
-    setProjectData({
-      ...projectData,
-      allItems: newItems
     });
-  }
-}
-function editPurchase(editIndex) {
-  const items = projectData.allItems.filter(i => i.type === "市購品");
 
-  const target = items[editIndex];
-  if (!target) return;
+    if (realIndex < 0) return;
 
-  const newSpec = prompt("修改品項（規格）：", target.spec);
-  if (!newSpec) return;
+    const arr = [...projectData.allItems];
+    arr.splice(realIndex, 1);
 
-  const row = purchaseDB.find(r => r.category === target.category && r.spec === newSpec);
-
-  let newPrice = row ? Number(row.price) : target.price;
-  const manualPrice = prompt(`修改單價（空白 = 使用系統單價 ${newPrice}）`, newPrice);
-  if (manualPrice !== "" && manualPrice !== null) {
-    newPrice = Number(manualPrice);
+    setProjectData({ ...projectData, allItems: arr });
   }
 
-  const newQty = Number(prompt("修改數量：", target.qty));
-  if (!newQty) return;
+  /* ===== 編輯開始 ===== */
+  function startEdit(idx) {
+    const items = projectData.allItems.filter(i => i.type === "市購品");
+    const target = items[idx];
 
-  const newSubtotal = Math.round(newQty * newPrice);
+    setEditIndex(idx);
+    setEditCategory(target.category);
+    setEditSpec(target.spec);
+    setEditQty(target.qty);
+    setEditPrice(target.price);
+  }
 
-  let realIndex = -1;
-  let counter = -1;
-  for (let i = 0; i < projectData.allItems.length; i++) {
-    if (projectData.allItems[i].type === "市購品") {
-      counter++;
-      if (counter === editIndex) {
-        realIndex = i;
-        break;
-      }
+  /* ===== 編輯儲存 ===== */
+  function saveEdit() {
+    const row = purchaseDB.find(r => r.category === editCategory && r.spec === editSpec);
+    let newPrice = row ? Number(row.price) : editPrice;
+
+    if (editPrice !== "" && editPrice !== null) {
+      newPrice = Number(editPrice);
     }
+
+    const newSubtotal = Math.round(newPrice * Number(editQty));
+
+    let count = -1;
+    let realIndex = -1;
+
+    projectData.allItems.forEach((it, i) => {
+      if (it.type === "市購品") {
+        count++;
+        if (count === editIndex) realIndex = i;
+      }
+    });
+
+    const newArr = [...projectData.allItems];
+    newArr[realIndex] = {
+      ...newArr[realIndex],
+      category: editCategory,
+      spec: editSpec,
+      qty: Number(editQty),
+      price: newPrice,
+      subtotal: newSubtotal
+    };
+
+    setProjectData({ ...projectData, allItems: newArr });
+    cancelEdit();
   }
 
-  if (realIndex === -1) return;
+  /* ===== 編輯取消 ===== */
+  function cancelEdit() {
+    setEditIndex(null);
+    setEditCategory("");
+    setEditSpec("");
+    setEditQty("");
+    setEditPrice("");
+  }
 
-  const newItems = [...projectData.allItems];
-  newItems[realIndex] = {
-    ...target,
-    spec: newSpec,
-    qty: newQty,
-    price: newPrice,
-    subtotal: newSubtotal
-  };
-
-  setProjectData({
-    ...projectData,
-    allItems: newItems
-  });
-}
-
-const items = projectData.allItems.filter(i => i.type === "市購品");
+  /* ===== 抓市購品明細 ===== */
+  const items = projectData.allItems.filter(i => i.type === "市購品");
 
   return (
     <div className="p-4 bg-white rounded shadow">
@@ -624,7 +624,7 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
         </select>
       </div>
 
-      {/* 規格 */}
+      {/* 品項選擇 */}
       {category && (
         <div className="mb-3">
           <label className="font-bold">品項：</label>
@@ -639,7 +639,7 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
         </div>
       )}
 
-      {/* 單價 */}
+      {/* 單位 / 單價 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-3">
           <div>單位：{selectedRow.unit}</div>
@@ -663,12 +663,11 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
       {/* 小計 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-4">
-          小計：
-          <b>{subtotal.toLocaleString()}</b> 元
+          小計：<b>{subtotal.toLocaleString()}</b> 元
         </div>
       )}
 
-      {/* 加入明細 */}
+      {/* 新增 */}
       <button
         onClick={addToList}
         className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
@@ -676,133 +675,134 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
         ＋ 加入成本明細表
       </button>
 
-<h3 className="mt-6 mb-2 text-lg font-bold">市購品明細</h3>
+      {/* ===== 明細表 ===== */}
+      <h3 className="mt-6 mb-2 text-lg font-bold">市購品明細</h3>
 
-<div className="overflow-x-auto">
-  <table className="w-full border mb-4">
-    <thead className="bg-gray-100">
-      <tr>
-        <th className="border px-2 py-1">分類</th>
-        <th className="border px-2 py-1">品項</th>
-        <th className="border px-2 py-1">數量</th>
-        <th className="border px-2 py-1">小計</th>
-        <th className="border px-2 py-1">操作</th>
-      </tr>
-    </thead>
-
-<tbody>
-  {items.map((i, idx) => (
-    <tr key={idx}>
-
-      {/* 分類 */}
-      <td className="border px-2 py-1">
-        {editIndex === idx ? (
-          <select
-            value={editCategory}
-            onChange={(e) => {
-              setEditCategory(e.target.value);
-              setEditSpec(""); // 重選分類時，清空品項
-            }}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="">請選擇分類</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        ) : (
-          i.category
-        )}
-      </td>
-
-      {/* 品項（重要：這裡改成下拉選單） */}
-      <td className="border px-2 py-1">
-        {editIndex === idx ? (
-          <select
-            value={editSpec}
-            onChange={(e) => setEditSpec(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="">請選擇品項</option>
-            {purchaseDB
-              .filter((r) => r.category === editCategory)  // 依照分類動態變化
-              .map((r) => (
-                <option key={r.spec} value={r.spec}>
-                  {r.spec}
-                </option>
-              ))}
-          </select>
-        ) : (
-          i.spec
-        )}
-      </td>
-
-      {/* 數量 */}
-      <td className="border px-2 py-1">
-        {editIndex === idx ? (
-          <input
-            type="number"
-            value={editQty}
-            onChange={(e) => setEditQty(e.target.value)}
-            className="border px-2 py-1 rounded w-20"
-          />
-        ) : (
-          i.qty
-        )}
-      </td>
-
-      {/* 小計 */}
-      <td className="border px-2 py-1">
-        {editIndex === idx ? (
-          <span className="text-gray-500">修改後自動更新</span>
-        ) : (
-          i.subtotal.toLocaleString()
-        )}
-      </td>
-
-      {/* 操作欄 */}
-      <td className="border px-2 py-1 text-center">
-        {editIndex === idx ? (
-          <>
-            <button
-              onClick={saveEdit}
-              className="px-2 py-1 bg-green-600 text-white rounded mr-2"
-            >
-              儲存
-            </button>
-            <button
-              onClick={cancelEdit}
-              className="px-2 py-1 bg-gray-500 text-white rounded"
-            >
-              取消
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={() => startEdit(idx)}
-              className="px-2 py-1 bg-yellow-500 text-white rounded mr-2"
-            >
-              編輯
-            </button>
-            <button
-              onClick={() => deletePurchase(idx)}
-              className="px-2 py-1 bg-red-600 text-white rounded"
-            >
-              刪除
-            </button>
-          </>
-        )}
-      </td>
-
+      <div className="overflow-x-auto">
+        <table className="w-full border mb-4">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="border px-2 py-1">分類</th>
+              <th className="border px-2 py-1">品項</th>
+              <th className="border px-2 py-1">數量</th>
+              <th className="border px-2 py-1">小計</th>
+              <th className="border px-2 py-1">操作</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div> 
-  </div>  
-  );  // return end
-}  // function PurchasePage end
+          </thead>
+
+          <tbody>
+            {items.map((i, idx) => (
+              <tr key={idx}>
+
+                {/* 分類（編輯模式下拉） */}
+                <td className="border px-2 py-1">
+                  {editIndex === idx ? (
+                    <select
+                      value={editCategory}
+                      onChange={(e) => {
+                        setEditCategory(e.target.value);
+                        setEditSpec("");
+                      }}
+                      className="border px-2 py-1 rounded"
+                    >
+                      <option value="">請選擇分類</option>
+                      {categories.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    i.category
+                  )}
+                </td>
+
+                {/* 品項（依分類下拉） */}
+                <td className="border px-2 py-1">
+                  {editIndex === idx ? (
+                    <select
+                      value={editSpec}
+                      onChange={e => setEditSpec(e.target.value)}
+                      className="border px-2 py-1 rounded"
+                    >
+                      <option value="">請選擇品項</option>
+                      {purchaseDB
+                        .filter(r => r.category === editCategory)
+                        .map(r => (
+                          <option key={r.spec} value={r.spec}>
+                            {r.spec}
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    i.spec
+                  )}
+                </td>
+
+                {/* 數量 */}
+                <td className="border px-2 py-1">
+                  {editIndex === idx ? (
+                    <input
+                      type="number"
+                      value={editQty}
+                      onChange={(e) => setEditQty(e.target.value)}
+                      className="border px-2 py-1 rounded w-20"
+                    />
+                  ) : (
+                    i.qty
+                  )}
+                </td>
+
+                {/* 小計 */}
+                <td className="border px-2 py-1">
+                  {editIndex === idx ? (
+                    <span className="text-gray-500">修改後自動更新</span>
+                  ) : (
+                    i.subtotal.toLocaleString()
+                  )}
+                </td>
+
+                {/* 操作按鈕 */}
+                <td className="border px-2 py-1 text-center">
+                  {editIndex === idx ? (
+                    <>
+                      <button
+                        onClick={saveEdit}
+                        className="px-2 py-1 bg-green-600 text-white rounded mr-2"
+                      >
+                        儲存
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        className="px-2 py-1 bg-gray-500 text-white rounded"
+                      >
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => startEdit(idx)}
+                        className="px-2 py-1 bg-yellow-500 text-white rounded mr-2"
+                      >
+                        編輯
+                      </button>
+                      <button
+                        onClick={() => deletePurchase(idx)}
+                        className="px-2 py-1 bg-red-600 text-white rounded"
+                      >
+                        刪除
+                      </button>
+                    </>
+                  )}
+                </td>
+
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 /****************************************************
  * PART 6 — FabricationPage（製作成本）
  * - 選分類 → 項目
