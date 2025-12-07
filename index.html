@@ -1179,16 +1179,25 @@ React.useEffect(() => {
       maintainAspectRatio: false,
       plugins: {
         legend: { position: "bottom" },
-        datalabels: {
-          color: "#000", // 黑色文字
-          font: { weight: "bold", size: 16 },
-          anchor: "end",  // 推到外側
-          align: "end",
-          offset: 12,
-          padding: 6,
-          formatter: (value, context) => {
-            const total = context.chart.getDatasetMeta(0).total;
-            return ((value / total) * 100).toFixed(1) + "%";
+datalabels: {
+  color: "#000",
+  font: { weight: "bold", size: 16 },
+
+  // 強制所有標籤都要顯示
+  clamp: true,
+  clip: false,
+
+  // 往外推，避免彼此擠在一起
+  anchor: "end",
+  align: "end",
+  offset: 20,
+  padding: 6,
+
+  formatter: (value, context) => {
+    const meta = context.chart.getDatasetMeta(0);
+    const total = meta.total;
+    const percent = (value / total) * 100;
+    return percent.toFixed(1) + "%";
           }
         }
       }
