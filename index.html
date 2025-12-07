@@ -690,34 +690,114 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
       </tr>
     </thead>
 
-    <tbody>
-      {items.map((i, idx) => (
-        <tr key={idx}>
-          <td className="border px-2 py-1">{i.category}</td>
-          <td className="border px-2 py-1">{i.spec}</td>
-          <td className="border px-2 py-1">{i.qty}</td>
-          <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+<tbody>
+  {items.map((i, idx) => (
+    <tr key={idx}>
 
-          <td className="border px-2 py-1 text-center">
-          <button
-  onClick={() => editPurchase(idx)}
-  className="px-2 py-1 bg-yellow-500 text-white rounded mr-2"
->
-  編輯
-</button>
+      {/* 分類 */}
+      <td className="border px-2 py-1">
+        {editIndex === idx ? (
+          <select
+            value={editCategory}
+            onChange={(e) => {
+              setEditCategory(e.target.value);
+              setEditSpec(""); // 重選分類時，清空品項
+            }}
+            className="border px-2 py-1 rounded"
+          >
+            <option value="">請選擇分類</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        ) : (
+          i.category
+        )}
+      </td>
 
-<button
-  onClick={() => deletePurchase(idx)}
-  className="px-2 py-1 bg-red-600 text-white rounded"
->
-  刪除
-</button>
+      {/* 品項（重要：這裡改成下拉選單） */}
+      <td className="border px-2 py-1">
+        {editIndex === idx ? (
+          <select
+            value={editSpec}
+            onChange={(e) => setEditSpec(e.target.value)}
+            className="border px-2 py-1 rounded"
+          >
+            <option value="">請選擇品項</option>
+            {purchaseDB
+              .filter((r) => r.category === editCategory)  // 依照分類動態變化
+              .map((r) => (
+                <option key={r.spec} value={r.spec}>
+                  {r.spec}
+                </option>
+              ))}
+          </select>
+        ) : (
+          i.spec
+        )}
+      </td>
 
-          </td>
-        </tr>
-           ))}
-   </tbody>
-      </table>
+      {/* 數量 */}
+      <td className="border px-2 py-1">
+        {editIndex === idx ? (
+          <input
+            type="number"
+            value={editQty}
+            onChange={(e) => setEditQty(e.target.value)}
+            className="border px-2 py-1 rounded w-20"
+          />
+        ) : (
+          i.qty
+        )}
+      </td>
+
+      {/* 小計 */}
+      <td className="border px-2 py-1">
+        {editIndex === idx ? (
+          <span className="text-gray-500">修改後自動更新</span>
+        ) : (
+          i.subtotal.toLocaleString()
+        )}
+      </td>
+
+      {/* 操作欄 */}
+      <td className="border px-2 py-1 text-center">
+        {editIndex === idx ? (
+          <>
+            <button
+              onClick={saveEdit}
+              className="px-2 py-1 bg-green-600 text-white rounded mr-2"
+            >
+              儲存
+            </button>
+            <button
+              onClick={cancelEdit}
+              className="px-2 py-1 bg-gray-500 text-white rounded"
+            >
+              取消
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => startEdit(idx)}
+              className="px-2 py-1 bg-yellow-500 text-white rounded mr-2"
+            >
+              編輯
+            </button>
+            <button
+              onClick={() => deletePurchase(idx)}
+              className="px-2 py-1 bg-red-600 text-white rounded"
+            >
+              刪除
+            </button>
+          </>
+        )}
+      </td>
+
+    </tr>
+  ))}
+</tbody>
 
     </div>
   );
