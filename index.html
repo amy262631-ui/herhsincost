@@ -203,232 +203,219 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
   );
 }
 /****************************************************
- * PART 4 — MaterialsPage（無編輯，只保留刪除）
- * 自動判斷是否為板材（分類含「板」）
- * 板材公式：
- *   重量 = L(m) × W(m) × unitWeight(kg/m²) × pcs
- * 型鋼公式：
- *   重量 = 長度(m) × qty × unitWeight(kg/m)
+ * PART 4 — MaterialsPage（自動連動 Google Sheet）
+ * 支援板材 + 型鋼模式
  ****************************************************/
-
-function MaterialsPage({ materialDB, projectData, setProjectData }) {
+function MaterialsPage({ materialsDB, projectData, setProjectData }) {
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
-
-  // 欄位
-  const [L, setL] = React.useState("");
-  const [W, setW] = React.useState("");
+  const [length, setLength] = React.useState("");
+  const [width, setWidth] = React.useState("");
   const [pcs, setPcs] = React.useState("");
 
-  const [lenVal, setLenVal] = React.useState("");
-  const [qty, setQty] = React.useState("");
-
-  // 取得分類
+  /* ===== 分類選單 ===== */
   const categories = React.useMemo(() => {
     const s = new Set();
-    materialDB.forEach(r => s.add(r.category));
+    materialsDB.forEach(r => s.add(r.category));
     return [...s];
-  }, [materialDB]);
+  }, [materialsDB]);
 
-  // 取得規格
+  /* ===== 規格選單 ===== */
   const specs = React.useMemo(() => {
-    return materialDB
+    return materialsDB
       .filter(r => r.category === category)
       .map(r => r.spec);
-  }, [category, materialDB]);
+  }, [category, materialsDB]);
 
-  // 選到的 DB 資料
+  /* ===== 找出當前選定 row ===== */
   const selectedRow = React.useMemo(() => {
-    return materialDB.find(r => r.category === category && r.spec === spec);
-  }, [category, spec, materialDB]);
+    return materialsDB.find(r => r.category === category && r.spec === spec);
+  }, [category, spec, materialsDB]);
 
-  // 自動判斷板材（分類含「板」）
+  const unitWeight = selectedRow ? Number(selectedRow.weight) : 0;
+  const price = selectedRow ? Number(selectedRow.price) : 0;
+
+  /* ===== 判斷是否為板材 ===== */
   const isPlate = category.includes("板");
 
-  // 計算重量與小計
-  let weight = 0;
-  let subtotal = 0;
+  /* ===== 計算重量 ===== */
+  const calcWeight = () => {
+    const L = parseFloat(length) || 0;
+    const W = parseFloat(width) || 0;
+    const P = parseFloat(pcs) || 0;
+    const U = Number(unitWeight);
 
-  if (selectedRow) {
-    const unitWeight = parseFloat(selectedRow.weight || 0);
-    const unitPrice = parseFloat(selectedRow.price || 0);
+    if (!selectedRow) return 0;
 
     if (isPlate) {
-      weight = (parseFloat(L || 0) * parseFloat(W || 0) * unitWeight * parseFloat(pcs || 0));
+      return L * W * U * P;
     } else {
-      weight = (parseFloat(lenVal || 0) * parseFloat(qty || 0) * unitWeight);
+      return L * U * P;
     }
+  };
 
-    subtotal = weight * unitPrice;
-  }
+  const weight = calcWeight();
+  const subtotal = Math.round(weight * price);
 
-  // ➤ 加入明細
-  function addToList() {
-    if (!category || !spec) {
-      alert("請選擇分類與規格");
-      return;
-    }
+  /* ===== 新增 ===== */
+  function addMaterial() {
+    if (!category || !spec) return alert("請選擇分類與規格");
+    if (!length || !pcs) return alert("請輸入長度與支/片數");
 
-    if (isPlate && (!L || !W || !pcs)) {
-      alert("板材請輸入 L / W / 片數");
-      return;
-    }
+    if (isPlate && !width) return alert("板材需要輸入寬度");
 
-    if (!isPlate && (!lenVal || !qty)) {
-      alert("型鋼請輸入長度 / 支數");
-      return;
-    }
-
-    const item = {
+    const newItem = {
       type: "材料",
       category,
       spec,
-      isPlate,
-      L,
-      W,
-      pcs,
-      lenVal,
-      qty,
-      weight: parseFloat(weight.toFixed(2)),
-      price: selectedRow.price,
-      subtotal: Math.round(subtotal)
+      length: Number(length),
+      width: isPlate ? Number(width) : null,
+      pcs: Number(pcs),
+      unitWeight,
+      weight,
+      price,
+      subtotal
     };
 
     setProjectData({
       ...projectData,
-      allItems: [...projectData.allItems, item]
+      allItems: [...projectData.allItems, newItem]
     });
 
-    setL(""); setW(""); setPcs("");
-    setLenVal(""); setQty("");
+    // 清除
+    setSpec("");
+    setLength("");
+    setWidth("");
+    setPcs("");
   }
 
-  // ➤ 刪除材料
-  function deleteMaterial(idx) {
-    const newList = projectData.allItems.filter(
-      (i, index) => !(i.type === "材料" && index === idx)
-    );
+  /* ===== 刪除 ===== */
+  function deleteMaterial(indexInTable) {
+    const materials = projectData.allItems.filter(i => i.type === "材料");
+    const itemToDelete = materials[indexInTable];
 
-    setProjectData({
-      ...projectData,
-      allItems: newList
-    });
+    const realIndex = projectData.allItems.indexOf(itemToDelete);
+    if (realIndex === -1) return;
+
+    const newArr = [...projectData.allItems];
+    newArr.splice(realIndex, 1);
+
+    setProjectData({ ...projectData, allItems: newArr });
   }
 
-  // 材料列表
-  const materialItems = projectData.allItems.filter(i => i.type === "材料");
-
-  const totalWeight = materialItems.reduce((sum, i) => sum + (i.weight || 0), 0);
+  /* ===== 材料列表 ===== */
+  const materials = projectData.allItems.filter(i => i.type === "材料");
+  const totalWeight = materials.reduce((s, i) => s + (i.weight || 0), 0);
 
   return (
-    <div className="p-4 bg-white rounded shadow">
-      <h2 className="text-xl font-bold mb-4">材料成本（自動辨識板材 / 型鋼）</h2>
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">材料成本明細</h2>
 
-      {/* 分類 */}
-      <div className="mb-3">
-        <label className="font-bold">分類：</label>
+      {/* ===== 輸入區（橫向排列） ===== */}
+      <div className="grid grid-cols-7 gap-3 mb-4">
+
+        {/* 分類 */}
         <select
           value={category}
           onChange={e => { setCategory(e.target.value); setSpec(""); }}
-          className="border px-2 py-1 ml-2 rounded"
+          className="border p-2 rounded"
         >
-          <option value="">請選擇分類</option>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          <option value="">分類</option>
+          {categories.map(c => <option key={c}>{c}</option>)}
         </select>
+
+        {/* 規格 */}
+        <select
+          value={spec}
+          onChange={e => setSpec(e.target.value)}
+          className="border p-2 rounded"
+          disabled={!category}
+        >
+          <option value="">規格</option>
+          {specs.map(s => <option key={s}>{s}</option>)}
+        </select>
+
+        {/* 長度 */}
+        <input
+          className="border p-2 rounded"
+          placeholder="長度(m)"
+          type="number"
+          value={length}
+          onChange={e => setLength(e.target.value)}
+        />
+
+        {/* 寬度（僅板材） */}
+        {isPlate ? (
+          <input
+            className="border p-2 rounded"
+            placeholder="寬度(m)"
+            type="number"
+            value={width}
+            onChange={e => setWidth(e.target.value)}
+          />
+        ) : (
+          <div className="p-2 text-gray-400 text-center">—</div>
+        )}
+
+        {/* 支/片 */}
+        <input
+          className="border p-2 rounded"
+          placeholder="支/片"
+          type="number"
+          value={pcs}
+          onChange={e => setPcs(e.target.value)}
+        />
+
+        {/* 單位重量 */}
+        <div className="p-2 border rounded bg-gray-50 text-center">
+          {unitWeight || "-"}
+        </div>
+
+        {/* 單價 */}
+        <div className="p-2 border rounded bg-gray-50 text-center">
+          {price || "-"}
+        </div>
       </div>
 
-      {/* 規格 */}
-      {category && (
-        <div className="mb-3">
-          <label className="font-bold">規格：</label>
-          <select
-            value={spec}
-            onChange={e => setSpec(e.target.value)}
-            className="border px-2 py-1 ml-2 rounded"
-          >
-            <option value="">請選擇規格</option>
-            {specs.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-      )}
-
-      {/* 自動判斷 */}
-      {spec && (
-        <div className="text-blue-600 font-bold mb-2">
-          自動判斷模式：{isPlate ? "板材（m × m）" : "型鋼（m × 支數）"}
-        </div>
-      )}
-
-      {/* 板材 */}
-      {isPlate && spec && (
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <div>
-            <label className="font-bold">長度 L (m)：</label>
-            <input value={L} onChange={e => setL(e.target.value)} className="border px-2 py-1 w-full rounded" />
-          </div>
-          <div>
-            <label className="font-bold">寬度 W (m)：</label>
-            <input value={W} onChange={e => setW(e.target.value)} className="border px-2 py-1 w-full rounded" />
-          </div>
-          <div>
-            <label className="font-bold">片數 pcs：</label>
-            <input value={pcs} onChange={e => setPcs(e.target.value)} className="border px-2 py-1 w-full rounded" />
-          </div>
-        </div>
-      )}
-
-      {/* 型鋼 */}
-      {!isPlate && spec && (
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="font-bold">長度 (m)：</label>
-            <input value={lenVal} onChange={e => setLenVal(e.target.value)} className="border px-2 py-1 w-full rounded" />
-          </div>
-          <div>
-            <label className="font-bold">支數：</label>
-            <input value={qty} onChange={e => setQty(e.target.value)} className="border px-2 py-1 w-full rounded" />
-          </div>
-        </div>
-      )}
-
-      {/* 計算結果 */}
-      {selectedRow && (
-        <div className="p-3 bg-gray-50 border rounded mb-4">
-          <div>重量：<b>{weight.toFixed(2)}</b> kg</div>
-          <div>小計：<b>{Math.round(subtotal).toLocaleString()}</b> 元</div>
-        </div>
-      )}
-
-      {/* 加入明細表 */}
+      {/* 新增按鈕 */}
       <button
-        onClick={addToList}
-        className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
+        onClick={addMaterial}
+        className="px-4 py-2 bg-blue-600 text-white rounded"
       >
-        ＋ 加入成本明細表
+        ＋ 新增材料
       </button>
 
-      {/* 明細表 */}
-      <h3 className="text-lg font-bold mt-6 mb-2">材料成本明細</h3>
-      <table className="table-auto w-full border">
+      {/* ===== 表格 ===== */}
+      <table className="w-full mt-6 border-collapse text-sm">
         <thead>
-          <tr className="bg-gray-100">
-            <th className="border p-2">分類</th>
-            <th className="border p-2">規格</th>
-            <th className="border p-2">重量(kg)</th>
-            <th className="border p-2">小計(元)</th>
-            <th className="border p-2">操作</th>
+          <tr className="bg-gray-200">
+            <th className="border px-2 py-1">分類</th>
+            <th className="border px-2 py-1">規格</th>
+            <th className="border px-2 py-1">長度</th>
+            <th className="border px-2 py-1">寬度</th>
+            <th className="border px-2 py-1">支/片</th>
+            <th className="border px-2 py-1">單位重量</th>
+            <th className="border px-2 py-1">重量(kg)</th>
+            <th className="border px-2 py-1">單價</th>
+            <th className="border px-2 py-1">小計</th>
+            <th className="border px-2 py-1">刪除</th>
           </tr>
         </thead>
 
         <tbody>
-          {materialItems.map((i, index) => (
+          {materials.map((i, index) => (
             <tr key={index}>
-              <td className="border p-2">{i.category}</td>
-              <td className="border p-2">{i.spec}</td>
-              <td className="border p-2">{i.weight}</td>
-              <td className="border p-2">{i.subtotal.toLocaleString()}</td>
+              <td className="border px-2 py-1">{i.category}</td>
+              <td className="border px-2 py-1">{i.spec}</td>
+              <td className="border px-2 py-1">{i.length}</td>
+              <td className="border px-2 py-1">{i.width ?? "-"}</td>
+              <td className="border px-2 py-1">{i.pcs}</td>
+              <td className="border px-2 py-1">{i.unitWeight}</td>
+              <td className="border px-2 py-1">{i.weight.toFixed(2)}</td>
+              <td className="border px-2 py-1">{i.price}</td>
+              <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
 
-              <td className="border p-2 text-center">
+              <td className="border px-2 py-1 text-center">
                 <button
                   className="px-2 py-1 bg-red-600 text-white rounded"
                   onClick={() => deleteMaterial(index)}
@@ -442,10 +429,9 @@ function MaterialsPage({ materialDB, projectData, setProjectData }) {
       </table>
 
       {/* 總重量 */}
-      <div className="font-bold text-right mt-2">
+      <div className="mt-4 font-bold">
         材料總重量：{totalWeight.toFixed(2)} kg
       </div>
-
     </div>
   );
 }
@@ -580,7 +566,6 @@ function PurchasePage({ purchaseDB, projectData, setProjectData }) {
     cancelEdit();
   }
 
-  /* ===== 編輯取消 ===== */
   function cancelEdit() {
     setEditIndex(null);
     setEditCategory("");
@@ -589,7 +574,7 @@ function PurchasePage({ purchaseDB, projectData, setProjectData }) {
     setEditPrice("");
   }
 
-  /* ===== 抓市購品明細 ===== */
+  /* ===== 只抓市購品資料 ===== */
   const items = projectData.allItems.filter(i => i.type === "市購品");
 
   return (
@@ -661,54 +646,107 @@ function PurchasePage({ purchaseDB, projectData, setProjectData }) {
         ＋ 加入成本明細表
       </button>
 
-     {/* 材料明細表 */}
-<h3 className="text-lg font-bold mt-6 mb-2">材料成本明細</h3>
+      {/* ======== 市購品明細表 ======== */}
+      <h3 className="text-lg font-bold mt-6 mb-2">市購品成本明細</h3>
 
-<table className="table-auto w-full border mb-4">
-  <thead>
-    <tr className="bg-gray-100">
-      <th className="border px-2 py-1">分類</th>
-      <th className="border px-2 py-1">規格</th>
-      <th className="border px-2 py-1">重量(kg)</th>
-      <th className="border px-2 py-1">小計(元)</th>
-      <th className="border px-2 py-1">操作</th>
-    </tr>
-  </thead>
+      <table className="table-auto w-full border mb-4">
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="border px-2 py-1">分類</th>
+            <th className="border px-2 py-1">規格</th>
+            <th className="border px-2 py-1">數量</th>
+            <th className="border px-2 py-1">小計</th>
+            <th className="border px-2 py-1">操作</th>
+          </tr>
+        </thead>
 
-  <tbody>
-    {materialItems.map((i, index) => (
-      <tr key={index}>
-        <td className="border px-2 py-1">{i.category}</td>
-        <td className="border px-2 py-1">{i.spec}</td>
+        <tbody>
+          {items.map((i, index) => (
+            <tr key={index}>
+              <td className="border px-2 py-1">{i.category}</td>
+              <td className="border px-2 py-1">{i.spec}</td>
+              <td className="border px-2 py-1">{i.qty}</td>
+              <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
 
-        {/* 重量欄位 */}
-        <td className="border px-2 py-1">
-          {i.weight ? i.weight.toFixed(2) : "0.00"}
-        </td>
+              <td className="border px-2 py-1 text-center space-x-2">
+                <button
+                  className="px-2 py-1 bg-yellow-600 text-white rounded"
+                  onClick={() => startEdit(index)}
+                >
+                  編輯
+                </button>
+                <button
+                  className="px-2 py-1 bg-red-600 text-white rounded"
+                  onClick={() => deletePurchase(index)}
+                >
+                  刪除
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
-        {/* 小計 */}
-        <td className="border px-2 py-1">
-          {i.subtotal != null ? i.subtotal.toLocaleString() : "0"}
-        </td>
+      {/* ===== 編輯區 ===== */}
+      {editIndex !== null && (
+        <div className="p-4 border rounded bg-yellow-50">
+          <h3 className="text-lg font-bold mb-2">編輯市購品</h3>
 
-        {/* 操作：只有刪除 */}
-        <td className="border px-2 py-1 text-center">
-          <button
-            className="px-2 py-1 bg-red-600 text-white rounded"
-            onClick={() => deleteMaterial(index)}
-          >
-            刪除
-          </button>
-        </td>
-      </tr>
-    ))}
-  </tbody>
-</table>
+          <div className="mb-2">
+            <label>分類：</label>
+            <input
+              className="border px-2 ml-2"
+              value={editCategory}
+              onChange={e => setEditCategory(e.target.value)}
+            />
+          </div>
 
-{/* 總重量 */}
-<div className="font-bold text-right">
-  材料總重量：{totalWeight.toFixed(2)} kg
-</div>
+          <div className="mb-2">
+            <label>規格：</label>
+            <input
+              className="border px-2 ml-2"
+              value={editSpec}
+              onChange={e => setEditSpec(e.target.value)}
+            />
+          </div>
+
+          <div className="mb-2">
+            <label>數量：</label>
+            <input
+              className="border px-2 ml-2"
+              value={editQty}
+              type="number"
+              onChange={e => setEditQty(e.target.value)}
+            />
+          </div>
+
+          <div className="mb-2">
+            <label>單價：</label>
+            <input
+              className="border px-2 ml-2"
+              value={editPrice}
+              type="number"
+              onChange={e => setEditPrice(e.target.value)}
+            />
+          </div>
+
+          <div className="space-x-2 mt-2">
+            <button
+              className="px-3 py-1 bg-blue-600 text-white rounded"
+              onClick={saveEdit}
+            >
+              儲存
+            </button>
+            <button
+              className="px-3 py-1 bg-gray-500 text-white rounded"
+              onClick={cancelEdit}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
