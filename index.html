@@ -1116,6 +1116,7 @@ function InstallPage({ installDB, projectData, setProjectData }) {
  ****************************************************/
 function SummaryPage({ projectData, currentProject, updateProjectData }) {
   const chartRef = React.useRef(null);
+
   /*************** 五大類成本小計 ***************/
   const sumByType = type =>
     projectData.allItems
@@ -1139,7 +1140,10 @@ function SummaryPage({ projectData, currentProject, updateProjectData }) {
     install: 0
   };
 
-  const manualTotal = Object.values(manualAdjustDetail).reduce((a, b) => a + Number(b || 0), 0);
+  const manualTotal = Object.values(manualAdjustDetail).reduce(
+    (a, b) => a + Number(b || 0),
+    0
+  );
 
   const finalCost = fiveTotal + manualTotal;
 
@@ -1148,22 +1152,24 @@ function SummaryPage({ projectData, currentProject, updateProjectData }) {
   const [profitRate, setProfitRate] = React.useState(35);
 
   const adminFee = Math.round(finalCost * (adminRate / 100));
-  const suggestPrice = Math.round((finalCost + adminFee) / (1 - profitRate / 100));
+  const suggestPrice = Math.round(
+    (finalCost + adminFee) / (1 - profitRate / 100)
+  );
 
-/*************** 更新人工調整數值（允許任意位數） ***************/
-function updateManualAdjust(field, value) {
-  const num = value === "" ? "" : Number(value); // 允許空字串、不強制變 0
+  /*************** 更新人工調整數值（允許任意位數） ***************/
+  function updateManualAdjust(field, value) {
+    const num = value === "" ? "" : Number(value);
 
-  const newDetail = {
-    ...manualAdjustDetail,
-    [field]: num
-  };
+    const newDetail = {
+      ...manualAdjustDetail,
+      [field]: num
+    };
 
-  updateProjectData({
-    ...projectData,
-    manualAdjustDetail: newDetail
-  });
-}
+    updateProjectData({
+      ...projectData,
+      manualAdjustDetail: newDetail
+    });
+  }
 
   /*************** 圓餅圖 ***************/
   React.useEffect(() => {
@@ -1196,11 +1202,7 @@ function updateManualAdjust(field, value) {
           datalabels: {
             color: "#000",
             font: { weight: "bold", size: 16 },
-            anchor: "end",
-            align: "end",
-            offset: 20,
-            padding: 6,
-            formatter: (value, context) => {
+            formatter: (value, ctx) => {
               const total = data.reduce((a, b) => a + b, 0);
               return total === 0 ? "0%" : ((value / total) * 100).toFixed(1) + "%";
             }
@@ -1211,7 +1213,7 @@ function updateManualAdjust(field, value) {
     });
   }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
-  /*************** 匯出 Excel（單頁整合） ***************/
+  /*************** 匯出 Excel ***************/
   function exportExcel() {
     const wb = XLSX.utils.book_new();
 
@@ -1221,14 +1223,10 @@ function updateManualAdjust(field, value) {
     const dd = String(today.getDate()).padStart(2, "0");
 
     const projectName = currentProject || "未命名工程";
-
     const fileName = `${yyyy}${mm}${dd}-${projectName}-成本分析.xlsx`;
 
     const rows = [];
 
-    /******************************
-     * 材料
-     ******************************/
     rows.push(["材料成本明細表"]);
     rows.push(["分類", "規格", "長m", "寬m", "數量", "重量", "單價", "小計"]);
     projectData.allItems
@@ -1248,53 +1246,46 @@ function updateManualAdjust(field, value) {
     rows.push(["合計", "", "", "", "", "", "", materialSum]);
     rows.push([]);
 
-    /******************************
-     * 市購品
-     ******************************/
     rows.push(["市購品成本明細表"]);
     rows.push(["分類", "規格", "數量", "單價", "小計"]);
     projectData.allItems
       .filter(i => i.type === "市購品")
-      .forEach(i => rows.push([i.category, i.spec, i.qty, i.price, i.subtotal]));
+      .forEach(i =>
+        rows.push([i.category, i.spec, i.qty, i.price, i.subtotal])
+      );
     rows.push(["合計", "", "", "", purchaseSum]);
     rows.push([]);
 
-    /******************************
-     * 製作
-     ******************************/
     rows.push(["製作成本明細表"]);
     rows.push(["分類", "規格", "數量", "單價", "小計"]);
     projectData.allItems
       .filter(i => i.type === "製作成本")
-      .forEach(i => rows.push([i.category, i.spec, i.qty, i.price, i.subtotal]));
+      .forEach(i =>
+        rows.push([i.category, i.spec, i.qty, i.price, i.subtotal])
+      );
     rows.push(["合計", "", "", "", fabSum]);
     rows.push([]);
 
-    /******************************
-     * 運輸
-     ******************************/
     rows.push(["運輸成本明細表"]);
     rows.push(["分類", "規格", "數量", "單價", "小計"]);
     projectData.allItems
       .filter(i => i.type === "運輸費用")
-      .forEach(i => rows.push([i.category, i.spec, i.qty, i.price, i.subtotal]));
+      .forEach(i =>
+        rows.push([i.category, i.spec, i.qty, i.price, i.subtotal])
+      );
     rows.push(["合計", "", "", "", transSum]);
     rows.push([]);
 
-    /******************************
-     * 現場安裝
-     ******************************/
     rows.push(["現場安裝成本明細表"]);
     rows.push(["分類", "規格", "數量", "單價", "小計"]);
     projectData.allItems
       .filter(i => i.type === "現場安裝")
-      .forEach(i => rows.push([i.category, i.spec, i.qty, i.price, i.subtotal]));
+      .forEach(i =>
+        rows.push([i.category, i.spec, i.qty, i.price, i.subtotal])
+      );
     rows.push(["合計", "", "", "", installSum]);
     rows.push([]);
 
-    /******************************
-     * 成本統計總表
-     ******************************/
     rows.push(["", "項目", "金額"]);
     rows.push(["", "五大成本合計", fiveTotal]);
     rows.push(["", "人工調整合計", manualTotal]);
@@ -1320,45 +1311,95 @@ function updateManualAdjust(field, value) {
         <canvas id="summaryChart"></canvas>
       </div>
 
+      {/* 五大成本統計 */}
+      <div className="grid grid-cols-2 gap-3 bg-white p-4 rounded shadow mb-4">
+        <p>材料成本：{materialSum}</p>
+        <p>市購品成本：{purchaseSum}</p>
+        <p>製作成本：{fabSum}</p>
+        <p>運輸費用：{transSum}</p>
+        <p>現場安裝成本：{installSum}</p>
+        <p className="font-bold">五大成本合計：{fiveTotal}</p>
+      </div>
+
       {/* 人工調整 */}
       <div className="bg-white p-4 rounded shadow mb-4">
         <h3 className="font-bold text-lg mb-2">人工調整</h3>
 
         <div className="grid grid-cols-2 gap-2">
           <label>材料：
-            <input type="number"
+            <input
+              type="number"
               value={manualAdjustDetail.material}
               onChange={e => updateManualAdjust("material", e.target.value)}
-              className="border p-1 w-full" />
+              className="border p-1 w-full"
+            />
           </label>
 
           <label>市購品：
-            <input type="number"
+            <input
+              type="number"
               value={manualAdjustDetail.purchase}
               onChange={e => updateManualAdjust("purchase", e.target.value)}
-              className="border p-1 w-full" />
+              className="border p-1 w-full"
+            />
           </label>
 
           <label>製作：
-            <input type="number"
+            <input
+              type="number"
               value={manualAdjustDetail.fabrication}
               onChange={e => updateManualAdjust("fabrication", e.target.value)}
-              className="border p-1 w-full" />
+              className="border p-1 w-full"
+            />
           </label>
 
           <label>運輸：
-            <input type="number"
+            <input
+              type="number"
               value={manualAdjustDetail.transport}
               onChange={e => updateManualAdjust("transport", e.target.value)}
-              className="border p-1 w-full" />
+              className="border p-1 w-full"
+            />
           </label>
 
           <label>安裝：
-            <input type="number"
+            <input
+              type="number"
               value={manualAdjustDetail.install}
               onChange={e => updateManualAdjust("install", e.target.value)}
-              className="border p-1 w-full" />
+              className="border p-1 w-full"
+            />
           </label>
+        </div>
+      </div>
+
+      {/* 成本摘要 */}
+      <div className="bg-white p-4 rounded shadow mb-4">
+        <p>人工調整小計：{manualTotal}</p>
+        <p className="font-bold">最終成本：{finalCost}</p>
+
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <label>管銷(%)
+            <input
+              type="number"
+              value={adminRate}
+              onChange={e => setAdminRate(Number(e.target.value))}
+              className="border p-1 w-full"
+            />
+          </label>
+
+          <p>管銷費：{adminFee}</p>
+
+          <label>毛利率(%)
+            <input
+              type="number"
+              value={profitRate}
+              onChange={e => setProfitRate(Number(e.target.value))}
+              className="border p-1 w-full"
+            />
+          </label>
+
+          <p className="font-bold">建議售價：{suggestPrice}</p>
         </div>
       </div>
 
