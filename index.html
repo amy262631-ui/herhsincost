@@ -1151,6 +1151,11 @@ React.useEffect(() => {
   const ctx = document.getElementById("summaryChart");
   if (!ctx) return;
 
+  // 安全銷毀舊圖表
+  if (window.summaryChart && typeof window.summaryChart.destroy === "function") {
+    window.summaryChart.destroy();
+  }
+
   const data = [
     materialSum,
     purchaseSum,
@@ -1160,10 +1165,6 @@ React.useEffect(() => {
   ];
 
   const labels = ["材料", "市購品", "製作", "運輸", "安裝"];
-
-  if (window.summaryChart) {
-    window.summaryChart.destroy();
-  }
 
   window.summaryChart = new Chart(ctx, {
     type: "pie",
@@ -1183,10 +1184,12 @@ React.useEffect(() => {
         legend: { position: "bottom" },
         datalabels: {
           color: "#fff",
+          font: { weight: "bold", size: 12 },
           formatter: (value, ctx) => {
             const total = ctx.chart._metasets[0].total;
             if (!total) return "";
-            return ((value / total) * 100).toFixed(1) + "%";
+            const percent = (value / total) * 100;
+            return percent.toFixed(1) + "%";
           }
         }
       }
