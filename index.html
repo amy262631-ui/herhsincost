@@ -1739,10 +1739,11 @@ React.useEffect(() => {
       )}
 
       {page === "總表" && (
-        <SummaryPage
-          projectData={projectData}
-          setProjectData={updateProjectData}
-        />
+<SummaryPage
+  projectData={projectData}
+  setProjectData={setProjectData}
+  currentProject={currentProject}
+/>
       )}
     </div>
   );
