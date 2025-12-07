@@ -1134,36 +1134,38 @@ function SummaryPage({ projectData, setProjectData }) {
 
   const fiveTotal = materialSum + purchaseSum + fabSum + transSum + installSum;
 
-  const manualAdjust = projectData.manualAdjust || 0;
+// 五大類人工調整（5 個欄位）
+const manualAdjustDetail = projectData.manualAdjustDetail || {
+  material: 0,
+  purchase: 0,
+  fabrication: 0,
+  transport: 0,
+  install: 0
+};
 
-  const finalCost = fiveTotal + manualAdjust;
+// 五大人工調整加總
+const manualTotal = Object.values(manualAdjustDetail).reduce((a, b) => a + b, 0);
 
-  const [adminRate, setAdminRate] = React.useState(15);
-  const [profitRate, setProfitRate] = React.useState(35);
+// 最終成本 = 五大成本總和 + 五項人工調整總和
+const finalCost = fiveTotal + manualTotal;
 
-  const adminFee = Math.round(finalCost * (adminRate / 100));
-  const suggestPrice = Math.round(
-    (finalCost + adminFee) / (1 - profitRate / 100)
-  );
+const [adminRate, setAdminRate] = React.useState(15);
+const [profitRate, setProfitRate] = React.useState(35);
 
-// Summary 圓餅圖
+const adminFee = Math.round(finalCost * (adminRate / 100));
+const suggestPrice = Math.round(
+  (finalCost + adminFee) / (1 - profitRate / 100)
+);
+
 React.useEffect(() => {
   const ctx = document.getElementById("summaryChart");
   if (!ctx) return;
 
-  // 安全銷毀舊圖表
   if (window.summaryChart && typeof window.summaryChart.destroy === "function") {
     window.summaryChart.destroy();
   }
 
-  const data = [
-    materialSum,
-    purchaseSum,
-    fabSum,
-    transSum,
-    installSum
-  ];
-
+  const data = [materialSum, purchaseSum, fabSum, transSum, installSum];
   const labels = ["材料", "市購品", "製作", "運輸", "安裝"];
 
   window.summaryChart = new Chart(ctx, {
@@ -1185,15 +1187,16 @@ React.useEffect(() => {
         datalabels: {
           color: "#fff",
           font: { weight: "bold", size: 12 },
-          formatter: (value, ctx) => {
-            const total = ctx.chart._metasets[0].total;
-            if (!total) return "";
+          formatter: (value, context) => {
+            const meta = context.chart.getDatasetMeta(0);
+            const total = meta.total || data.reduce((a, b) => a + b, 0);
             const percent = (value / total) * 100;
             return percent.toFixed(1) + "%";
           }
         }
       }
-    }
+    },
+    plugins: [ChartDataLabels]
   });
 }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
@@ -1260,6 +1263,7 @@ React.useEffect(() => {
           <tr>
             <td className="border px-2 py-1">材料成本</td>
             <td className="border px-2 py-1">{materialSum.toLocaleString()}</td>
+            <th className="border px-2 py-1">人工調整</th>
             <td rowSpan="5" className="border px-2 py-1 align-top">
               <input
                 type="number"
@@ -1278,21 +1282,25 @@ React.useEffect(() => {
           <tr>
             <td className="border px-2 py-1">市購品</td>
             <td className="border px-2 py-1">{purchaseSum.toLocaleString()}</td>
+            <th className="border px-2 py-1">人工調整</th>
           </tr>
 
           <tr>
             <td className="border px-2 py-1">製作成本</td>
             <td className="border px-2 py-1">{fabSum.toLocaleString()}</td>
+            <th className="border px-2 py-1">人工調整</th>
           </tr>
 
           <tr>
             <td className="border px-2 py-1">運輸費用</td>
             <td className="border px-2 py-1">{transSum.toLocaleString()}</td>
+            <th className="border px-2 py-1">人工調整</th>
           </tr>
 
           <tr>
             <td className="border px-2 py-1">現場安裝</td>
             <td className="border px-2 py-1">{installSum.toLocaleString()}</td>
+            <th className="border px-2 py-1">人工調整</th>
           </tr>
         </tbody>
       </table>
