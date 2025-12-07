@@ -1111,13 +1111,13 @@ function InstallPage({ installDB, projectData, setProjectData }) {
     </div>
   );
 }
-//****************************************************
+/****************************************************
  * PART 9 — SummaryPage（總表）
  ****************************************************/
-function SummaryPage({ projectData, currentProject }) {
+function SummaryPage({ projectData, currentProject, setProjectData }) {
   const chartRef = React.useRef(null);
 
-  // 五大類金額小計
+  /*************** 五大類成本小計 ***************/
   const sumByType = type =>
     projectData.allItems
       .filter(i => i.type === type)
@@ -1131,7 +1131,7 @@ function SummaryPage({ projectData, currentProject }) {
 
   const fiveTotal = materialSum + purchaseSum + fabSum + transSum + installSum;
 
-  // 五個人工調整欄位
+  /*************** 人工調整欄位 ***************/
   const manualAdjustDetail = projectData.manualAdjustDetail || {
     material: 0,
     purchase: 0,
@@ -1140,15 +1140,31 @@ function SummaryPage({ projectData, currentProject }) {
     install: 0
   };
 
-  const manualTotal = Object.values(manualAdjustDetail).reduce((a, b) => a + b, 0);
+  const manualTotal = Object.values(manualAdjustDetail).reduce((a, b) => a + Number(b || 0), 0);
 
   const finalCost = fiveTotal + manualTotal;
 
+  /*************** 管銷 / 毛利 / 售價 ***************/
   const [adminRate, setAdminRate] = React.useState(15);
   const [profitRate, setProfitRate] = React.useState(35);
 
   const adminFee = Math.round(finalCost * (adminRate / 100));
   const suggestPrice = Math.round((finalCost + adminFee) / (1 - profitRate / 100));
+
+  /*************** 更新人工調整數值（允許任意位數） ***************/
+  function updateManualAdjust(field, value) {
+    const num = value === "" ? "" : Number(value); // 允許空字串、不強制變 0
+
+    const newDetail = {
+      ...manualAdjustDetail,
+      [field]: num
+    };
+
+    setProjectData({
+      ...projectData,
+      manualAdjustDetail: newDetail
+    });
+  }
 
   /*************** 圓餅圖 ***************/
   React.useEffect(() => {
@@ -1187,39 +1203,35 @@ function SummaryPage({ projectData, currentProject }) {
             padding: 6,
             formatter: (value, context) => {
               const total = data.reduce((a, b) => a + b, 0);
-              return ((value / total) * 100).toFixed(1) + "%";
+              return total === 0 ? "0%" : ((value / total) * 100).toFixed(1) + "%";
             }
           }
         }
       },
-      plugins: [
-        ChartDataLabels
-      ]
+      plugins: [ChartDataLabels]
     });
   }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
-
-  /*************** 匯出 Excel ***************/
+  /*************** 匯出 Excel（單頁整合） ***************/
   function exportExcel() {
     const wb = XLSX.utils.book_new();
 
-    // 日期
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, "0");
     const dd = String(today.getDate()).padStart(2, "0");
 
-    // 工程名稱取「工程管理」中的 currentProject
     const projectName = currentProject || "未命名工程";
 
     const fileName = `${yyyy}${mm}${dd}-${projectName}-成本分析.xlsx`;
 
     const rows = [];
 
-    // ======== 材料成本 ========
+    /******************************
+     * 材料
+     ******************************/
     rows.push(["材料成本明細表"]);
     rows.push(["分類", "規格", "長m", "寬m", "數量", "重量", "單價", "小計"]);
-
     projectData.allItems
       .filter(i => i.type === "材料")
       .forEach(i =>
@@ -1234,55 +1246,56 @@ function SummaryPage({ projectData, currentProject }) {
           i.subtotal
         ])
       );
-
     rows.push(["合計", "", "", "", "", "", "", materialSum]);
     rows.push([]);
 
-    // ======== 市購品 ========
+    /******************************
+     * 市購品
+     ******************************/
     rows.push(["市購品成本明細表"]);
     rows.push(["分類", "規格", "數量", "單價", "小計"]);
-
     projectData.allItems
       .filter(i => i.type === "市購品")
       .forEach(i => rows.push([i.category, i.spec, i.qty, i.price, i.subtotal]));
-
     rows.push(["合計", "", "", "", purchaseSum]);
     rows.push([]);
 
-    // ======== 製作成本 ========
+    /******************************
+     * 製作
+     ******************************/
     rows.push(["製作成本明細表"]);
     rows.push(["分類", "規格", "數量", "單價", "小計"]);
-
     projectData.allItems
       .filter(i => i.type === "製作成本")
       .forEach(i => rows.push([i.category, i.spec, i.qty, i.price, i.subtotal]));
-
     rows.push(["合計", "", "", "", fabSum]);
     rows.push([]);
 
-    // ======== 運輸成本 ========
+    /******************************
+     * 運輸
+     ******************************/
     rows.push(["運輸成本明細表"]);
     rows.push(["分類", "規格", "數量", "單價", "小計"]);
-
     projectData.allItems
       .filter(i => i.type === "運輸費用")
       .forEach(i => rows.push([i.category, i.spec, i.qty, i.price, i.subtotal]));
-
     rows.push(["合計", "", "", "", transSum]);
     rows.push([]);
 
-    // ======== 安裝成本 ========
+    /******************************
+     * 現場安裝
+     ******************************/
     rows.push(["現場安裝成本明細表"]);
     rows.push(["分類", "規格", "數量", "單價", "小計"]);
-
     projectData.allItems
       .filter(i => i.type === "現場安裝")
       .forEach(i => rows.push([i.category, i.spec, i.qty, i.price, i.subtotal]));
-
     rows.push(["合計", "", "", "", installSum]);
     rows.push([]);
 
-    // ======== 統計總表 ========
+    /******************************
+     * 成本統計總表
+     ******************************/
     rows.push(["", "項目", "金額"]);
     rows.push(["", "五大成本合計", fiveTotal]);
     rows.push(["", "人工調整合計", manualTotal]);
@@ -1298,18 +1311,62 @@ function SummaryPage({ projectData, currentProject }) {
     XLSX.writeFile(wb, fileName);
   }
 
-
+  /*************** RETURN：頁面 UI ***************/
   return (
-    <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">總表 Summary</h2>
+    <div className="p-4 max-w-5xl mx-auto">
+      <h2 className="text-2xl font-bold mb-4">成本總表</h2>
 
-      <div style={{ width: "100%", height: "380px" }}>
+      {/* 圓餅圖 */}
+      <div className="w-full h-80 mb-6">
         <canvas id="summaryChart"></canvas>
       </div>
 
+      {/* 人工調整 */}
+      <div className="bg-white p-4 rounded shadow mb-4">
+        <h3 className="font-bold text-lg mb-2">人工調整</h3>
+
+        <div className="grid grid-cols-2 gap-2">
+          <label>材料：
+            <input type="number"
+              value={manualAdjustDetail.material}
+              onChange={e => updateManualAdjust("material", e.target.value)}
+              className="border p-1 w-full" />
+          </label>
+
+          <label>市購品：
+            <input type="number"
+              value={manualAdjustDetail.purchase}
+              onChange={e => updateManualAdjust("purchase", e.target.value)}
+              className="border p-1 w-full" />
+          </label>
+
+          <label>製作：
+            <input type="number"
+              value={manualAdjustDetail.fabrication}
+              onChange={e => updateManualAdjust("fabrication", e.target.value)}
+              className="border p-1 w-full" />
+          </label>
+
+          <label>運輸：
+            <input type="number"
+              value={manualAdjustDetail.transport}
+              onChange={e => updateManualAdjust("transport", e.target.value)}
+              className="border p-1 w-full" />
+          </label>
+
+          <label>安裝：
+            <input type="number"
+              value={manualAdjustDetail.install}
+              onChange={e => updateManualAdjust("install", e.target.value)}
+              className="border p-1 w-full" />
+          </label>
+        </div>
+      </div>
+
+      {/* 匯出 Excel */}
       <button
         onClick={exportExcel}
-        className="mt-4 px-4 py-2 bg-green-600 text-white rounded"
+        className="bg-green-600 text-white px-4 py-2 rounded shadow"
       >
         匯出 Excel
       </button>
