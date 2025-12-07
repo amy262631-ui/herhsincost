@@ -553,6 +553,56 @@ function deletePurchase(deleteIndex) {
     });
   }
 }
+function editPurchase(editIndex) {
+  const items = projectData.allItems.filter(i => i.type === "市購品");
+
+  const target = items[editIndex];
+  if (!target) return;
+
+  const newSpec = prompt("修改品項（規格）：", target.spec);
+  if (!newSpec) return;
+
+  const row = purchaseDB.find(r => r.category === target.category && r.spec === newSpec);
+
+  let newPrice = row ? Number(row.price) : target.price;
+  const manualPrice = prompt(`修改單價（空白 = 使用系統單價 ${newPrice}）`, newPrice);
+  if (manualPrice !== "" && manualPrice !== null) {
+    newPrice = Number(manualPrice);
+  }
+
+  const newQty = Number(prompt("修改數量：", target.qty));
+  if (!newQty) return;
+
+  const newSubtotal = Math.round(newQty * newPrice);
+
+  let realIndex = -1;
+  let counter = -1;
+  for (let i = 0; i < projectData.allItems.length; i++) {
+    if (projectData.allItems[i].type === "市購品") {
+      counter++;
+      if (counter === editIndex) {
+        realIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (realIndex === -1) return;
+
+  const newItems = [...projectData.allItems];
+  newItems[realIndex] = {
+    ...target,
+    spec: newSpec,
+    qty: newQty,
+    price: newPrice,
+    subtotal: newSubtotal
+  };
+
+  setProjectData({
+    ...projectData,
+    allItems: newItems
+  });
+}
 
 const items = projectData.allItems.filter(i => i.type === "市購品");
 
@@ -649,12 +699,20 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
           <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
 
           <td className="border px-2 py-1 text-center">
-            <button
-              onClick={() => deletePurchase(idx)}
-              className="px-2 py-1 bg-red-600 text-white rounded"
-            >
-              刪除
-            </button>
+          <button
+  onClick={() => editPurchase(idx)}
+  className="px-2 py-1 bg-yellow-500 text-white rounded mr-2"
+>
+  編輯
+</button>
+
+<button
+  onClick={() => deletePurchase(idx)}
+  className="px-2 py-1 bg-red-600 text-white rounded"
+>
+  刪除
+</button>
+
           </td>
         </tr>
       ))}
