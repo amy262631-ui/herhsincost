@@ -206,7 +206,7 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
  * PART 4 — MaterialsPage（自動連動 Google Sheet）
  * 支援板材 + 型鋼模式
  ****************************************************/
-function MaterialsPage({ materialsDB, projectData, setProjectData }) {
+function MaterialsPage({ materialDB, projectData, setProjectData }) {
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
   const [length, setLength] = React.useState("");
@@ -216,21 +216,21 @@ function MaterialsPage({ materialsDB, projectData, setProjectData }) {
   /* ===== 分類選單 ===== */
   const categories = React.useMemo(() => {
     const s = new Set();
-    materialsDB.forEach(r => s.add(r.category));
+    materialDB.forEach(r => s.add(r.category));
     return [...s];
-  }, [materialsDB]);
+  }, [materialDB]);
 
   /* ===== 規格選單 ===== */
   const specs = React.useMemo(() => {
-    return materialsDB
+    return materialDB
       .filter(r => r.category === category)
       .map(r => r.spec);
-  }, [category, materialsDB]);
+  }, [category, materialDB]);
 
   /* ===== 找出當前選定 row ===== */
   const selectedRow = React.useMemo(() => {
-    return materialsDB.find(r => r.category === category && r.spec === spec);
-  }, [category, spec, materialsDB]);
+    return materialDB.find(r => r.category === category && r.spec === spec);
+  }, [category, spec, materialDB]);
 
   const unitWeight = selectedRow ? Number(selectedRow.weight) : 0;
   const price = selectedRow ? Number(selectedRow.price) : 0;
