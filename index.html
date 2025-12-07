@@ -470,7 +470,6 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
  * - 數量 × 單價 → 小計
  * - 加入成本明細表
  ****************************************************/
-
 function PurchasePage({ purchaseDB, projectData, setProjectData }) {
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
@@ -631,14 +630,15 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
       <h3 className="mt-6 mb-2 text-lg font-bold">市購品明細</h3>
 
       <table className="w-full border mb-4">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="border px-2 py-1">分類</th>
-            <th className="border px-2 py-1">品項</th>
-            <th className="border px-2 py-1">數量</th>
-            <th className="border px-2 py-1">小計</th>
-          </tr>
-        </thead>
+    <thead className="bg-gray-100">
+  <tr>
+    <th className="border px-2 py-1">分類</th>
+    <th className="border px-2 py-1">品項</th>
+    <th className="border px-2 py-1">數量</th>
+    <th className="border px-2 py-1">小計</th>
+    <th className="border px-2 py-1">操作</th>
+  </tr>
+</thead>
 
         <tbody>
 {items.map((i, idx) => (
