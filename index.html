@@ -760,6 +760,7 @@ function PurchasePage({ purchaseDB, projectData, setProjectData }) {
  * - 顯示單位 / 單價
  * - 數量 × 單價 → 小計
  * - 加入成本明細表
+ * - ⭐ 已加入「刪除功能」與「刪除按鈕」
  ****************************************************/
 
 function FabricationPage({ fabricationDB, projectData, setProjectData }) {
@@ -767,21 +768,35 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
   const [spec, setSpec] = React.useState("");
   const [qty, setQty] = React.useState("");
 
-  // 取得分類
+  /* ====== 刪除功能（依照 type 正確比對 index）====== */
+  function deleteFabrication(indexInTable) {
+    const items = projectData.allItems.filter(i => i.type === "製作成本");
+    const itemToDelete = items[indexInTable];
+
+    const realIndex = projectData.allItems.indexOf(itemToDelete);
+    if (realIndex === -1) return;
+
+    const arr = [...projectData.allItems];
+    arr.splice(realIndex, 1);
+
+    setProjectData({ ...projectData, allItems: arr });
+  }
+
+  /* ====== 分類列表 ====== */
   const categories = React.useMemo(() => {
     const set = new Set();
     fabricationDB.forEach(r => set.add(r.category));
     return [...set];
   }, [fabricationDB]);
 
-  // 依分類得到項目（spec）
+  /* ====== 項目列表 ====== */
   const specs = React.useMemo(() => {
     return fabricationDB
       .filter(r => r.category === category)
       .map(r => r.spec);
   }, [category, fabricationDB]);
 
-  // 選到項目
+  /* ====== 選取的資料列 ====== */
   const selectedRow = React.useMemo(() => {
     return fabricationDB.find(r => r.category === category && r.spec === spec);
   }, [category, spec, fabricationDB]);
@@ -789,6 +804,7 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
   const unitPrice = selectedRow ? Number(selectedRow.price) : 0;
   const subtotal = Math.round(unitPrice * Number(qty || 0));
 
+  /* ====== 新增明細 ====== */
   function addToList() {
     if (!category || !spec) {
       alert("請選擇分類與項目");
@@ -808,17 +824,16 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
       subtotal
     };
 
-    const updated = {
+    setProjectData({
       ...projectData,
       allItems: [...projectData.allItems, item]
-    };
-
-    setProjectData(updated);
+    });
 
     setSpec("");
     setQty("");
   }
 
+  /* ====== 製作成本明細 ====== */
   const items = projectData.allItems.filter(i => i.type === "製作成本");
 
   return (
@@ -858,7 +873,7 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
         </div>
       )}
 
-      {/* 單價顯示 */}
+      {/* 顯示單位 + 單價 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-3">
           <div>單位：{selectedRow.unit}</div>
@@ -886,7 +901,7 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
         </div>
       )}
 
-      {/* 加入明細 */}
+      {/* 新增按鈕 */}
       <button
         onClick={addToList}
         className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
@@ -904,6 +919,7 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
             <th className="border px-2 py-1">項目</th>
             <th className="border px-2 py-1">數量</th>
             <th className="border px-2 py-1">小計</th>
+            <th className="border px-2 py-1">操作</th>
           </tr>
         </thead>
 
@@ -914,6 +930,16 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
               <td className="border px-2 py-1">{i.spec}</td>
               <td className="border px-2 py-1">{i.qty}</td>
               <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+              
+              {/* 刪除按鈕 */}
+              <td className="border px-2 py-1 text-center">
+                <button
+                  className="px-2 py-1 bg-red-600 text-white rounded"
+                  onClick={() => deleteFabrication(idx)}
+                >
+                  刪除
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -928,6 +954,7 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
  * - 顯示地區、單位、單價
  * - 數量 × 單價 → 小計
  * - 加入成本明細表
+ * - ⭐ 已加入刪除功能
  ****************************************************/
 
 function TransportPage({ transportDB, projectData, setProjectData }) {
@@ -935,21 +962,35 @@ function TransportPage({ transportDB, projectData, setProjectData }) {
   const [spec, setSpec] = React.useState("");
   const [qty, setQty] = React.useState("");
 
-  // 取得分類
+  /* ===== 刪除功能 ===== */
+  function deleteTransport(indexInTable) {
+    const items = projectData.allItems.filter(i => i.type === "運輸費用");
+    const itemToDelete = items[indexInTable];
+
+    const realIndex = projectData.allItems.indexOf(itemToDelete);
+    if (realIndex === -1) return;
+
+    const arr = [...projectData.allItems];
+    arr.splice(realIndex, 1);
+
+    setProjectData({ ...projectData, allItems: arr });
+  }
+
+  /* ===== 取得分類 ===== */
   const categories = React.useMemo(() => {
     const s = new Set();
     transportDB.forEach(r => s.add(r.category));
     return [...s];
   }, [transportDB]);
 
-  // 規格
+  /* ===== 規格選單 ===== */
   const specs = React.useMemo(() => {
     return transportDB
       .filter(r => r.category === category)
       .map(r => r.spec);
   }, [category, transportDB]);
 
-  // 選到的資料
+  /* ===== 選取項目 ===== */
   const selectedRow = React.useMemo(() => {
     return transportDB.find(r => r.category === category && r.spec === spec);
   }, [category, spec, transportDB]);
@@ -957,6 +998,7 @@ function TransportPage({ transportDB, projectData, setProjectData }) {
   const price = selectedRow ? Number(selectedRow.price) : 0;
   const subtotal = Math.round(price * Number(qty || 0));
 
+  /* ===== 加入明細 ===== */
   function addToList() {
     if (!category || !spec) {
       alert("請選擇分類與項目");
@@ -988,6 +1030,7 @@ function TransportPage({ transportDB, projectData, setProjectData }) {
     setQty("");
   }
 
+  /* ===== 運輸費用明細 ===== */
   const items = projectData.allItems.filter(i => i.type === "運輸費用");
 
   return (
@@ -1027,7 +1070,7 @@ function TransportPage({ transportDB, projectData, setProjectData }) {
         </div>
       )}
 
-      {/* 顯示地區、單價 */}
+      {/* 顯示單位 & 單價 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-3">
           <div>地區：{selectedRow.region || "—"}</div>
@@ -1056,7 +1099,7 @@ function TransportPage({ transportDB, projectData, setProjectData }) {
         </div>
       )}
 
-      {/* 加入明細 */}
+      {/* 新增按鈕 */}
       <button
         onClick={addToList}
         className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
@@ -1075,6 +1118,7 @@ function TransportPage({ transportDB, projectData, setProjectData }) {
             <th className="border px-2 py-1">地區</th>
             <th className="border px-2 py-1">數量</th>
             <th className="border px-2 py-1">小計</th>
+            <th className="border px-2 py-1">操作</th>
           </tr>
         </thead>
 
@@ -1086,6 +1130,16 @@ function TransportPage({ transportDB, projectData, setProjectData }) {
               <td className="border px-2 py-1">{i.region}</td>
               <td className="border px-2 py-1">{i.qty}</td>
               <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+
+              {/* 刪除按鈕 */}
+              <td className="border px-2 py-1 text-center">
+                <button
+                  className="px-2 py-1 bg-red-600 text-white rounded"
+                  onClick={() => deleteTransport(idx)}
+                >
+                  刪除
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -1100,6 +1154,7 @@ function TransportPage({ transportDB, projectData, setProjectData }) {
  * - 顯示單位 / 單價
  * - 數量 × 單價 → 小計
  * - 加入成本明細表
+ * - ⭐ 已加入刪除功能
  ****************************************************/
 
 function InstallPage({ installDB, projectData, setProjectData }) {
@@ -1107,21 +1162,35 @@ function InstallPage({ installDB, projectData, setProjectData }) {
   const [spec, setSpec] = React.useState("");
   const [qty, setQty] = React.useState("");
 
-  // 取得分類清單
+  /* ===== 刪除功能 ===== */
+  function deleteInstall(indexInTable) {
+    const items = projectData.allItems.filter(i => i.type === "現場安裝");
+    const itemToDelete = items[indexInTable];
+
+    const realIndex = projectData.allItems.indexOf(itemToDelete);
+    if (realIndex === -1) return;
+
+    const arr = [...projectData.allItems];
+    arr.splice(realIndex, 1);
+
+    setProjectData({ ...projectData, allItems: arr });
+  }
+
+  /* ===== 分類清單 ===== */
   const categories = React.useMemo(() => {
     const s = new Set();
     installDB.forEach(r => s.add(r.category));
     return [...s];
   }, [installDB]);
 
-  // 取得規格清單
+  /* ===== 規格清單 ===== */
   const specs = React.useMemo(() => {
     return installDB
       .filter(r => r.category === category)
       .map(r => r.spec);
   }, [category, installDB]);
 
-  // 選中的資料列
+  /* ===== 選取的資料列 ===== */
   const selectedRow = React.useMemo(() => {
     return installDB.find(r => r.category === category && r.spec === spec);
   }, [category, spec, installDB]);
@@ -1129,6 +1198,7 @@ function InstallPage({ installDB, projectData, setProjectData }) {
   const price = selectedRow ? Number(selectedRow.price) : 0;
   const subtotal = Math.round(price * Number(qty || 0));
 
+  /* ===== 加入明細 ===== */
   function addToList() {
     if (!category || !spec) {
       alert("請選擇分類與項目");
@@ -1159,6 +1229,7 @@ function InstallPage({ installDB, projectData, setProjectData }) {
     setQty("");
   }
 
+  /* ===== 明細列表 ===== */
   const items = projectData.allItems.filter(i => i.type === "現場安裝");
 
   return (
@@ -1198,7 +1269,7 @@ function InstallPage({ installDB, projectData, setProjectData }) {
         </div>
       )}
 
-      {/* 單價顯示 */}
+      {/* 單價 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-4">
           <div>單位：{selectedRow.unit}</div>
@@ -1222,12 +1293,11 @@ function InstallPage({ installDB, projectData, setProjectData }) {
       {/* 小計 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-4">
-          小計：
-          <b>{subtotal.toLocaleString()}</b> 元
+          小計：<b>{subtotal.toLocaleString()}</b> 元
         </div>
       )}
 
-      {/* 加入明細 */}
+      {/* 新增 */}
       <button
         onClick={addToList}
         className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
@@ -1245,6 +1315,7 @@ function InstallPage({ installDB, projectData, setProjectData }) {
             <th className="border px-2 py-1">規格</th>
             <th className="border px-2 py-1">數量</th>
             <th className="border px-2 py-1">小計</th>
+            <th className="border px-2 py-1">操作</th>
           </tr>
         </thead>
 
@@ -1255,6 +1326,16 @@ function InstallPage({ installDB, projectData, setProjectData }) {
               <td className="border px-2 py-1">{i.spec}</td>
               <td className="border px-2 py-1">{i.qty}</td>
               <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+
+              {/* 刪除按鈕 */}
+              <td className="border px-2 py-1 text-center">
+                <button
+                  className="px-2 py-1 bg-red-600 text-white rounded"
+                  onClick={() => deleteInstall(idx)}
+                >
+                  刪除
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
