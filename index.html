@@ -641,14 +641,13 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
 </thead>
 
         <tbody>
+<tbody>
 {items.map((i, idx) => (
   <tr key={idx}>
     <td className="border px-2 py-1">{i.category}</td>
     <td className="border px-2 py-1">{i.spec}</td>
     <td className="border px-2 py-1">{i.qty}</td>
     <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
-
-    {/* 操作欄 */}
     <td className="border px-2 py-1 text-center">
       <button
         onClick={() => deletePurchase(idx)}
@@ -659,6 +658,9 @@ const items = projectData.allItems.filter(i => i.type === "市購品");
     </td>
   </tr>
 ))}
+</tbody>
+</table>
+</div>
 /****************************************************
  * PART 6 — FabricationPage（製作成本）
  * - 選分類 → 項目
