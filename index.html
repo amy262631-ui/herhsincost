@@ -912,11 +912,11 @@ function PurchasePage({ purchaseDB, projectData, setProjectData }) {
 }
 /****************************************************
  * PART 6 — FabricationPage（製作成本）
- * - 選分類 → 項目
- * - 顯示單位 / 單價
- * - 數量 × 單價 → 小計
- * - 加入成本明細表
- * - ⭐ 已加入「刪除功能」與「刪除按鈕」
+ * - 下拉分類 → 下拉項目
+ * - 單位 / 單價由 DB 決定，不能修改
+ * - 數量 qty 可修改
+ * - 小計 = price × qty
+ * - 支援：新增、刪除、Inline 編輯
  ****************************************************/
 
 function FabricationPage({ fabricationDB, projectData, setProjectData }) {
@@ -924,43 +924,33 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
   const [spec, setSpec] = React.useState("");
   const [qty, setQty] = React.useState("");
 
-  /* ====== 刪除功能（依照 type 正確比對 index）====== */
-  function deleteFabrication(indexInTable) {
-    const items = projectData.allItems.filter(i => i.type === "製作成本");
-    const itemToDelete = items[indexInTable];
-
-    const realIndex = projectData.allItems.indexOf(itemToDelete);
-    if (realIndex === -1) return;
-
-    const arr = [...projectData.allItems];
-    arr.splice(realIndex, 1);
-
-    setProjectData({ ...projectData, allItems: arr });
-  }
-
-  /* ====== 分類列表 ====== */
+  /****************************************************
+   * 取得分類 + 規格選項
+   ****************************************************/
   const categories = React.useMemo(() => {
     const set = new Set();
     fabricationDB.forEach(r => set.add(r.category));
     return [...set];
   }, [fabricationDB]);
 
-  /* ====== 項目列表 ====== */
   const specs = React.useMemo(() => {
     return fabricationDB
       .filter(r => r.category === category)
       .map(r => r.spec);
   }, [category, fabricationDB]);
 
-  /* ====== 選取的資料列 ====== */
   const selectedRow = React.useMemo(() => {
     return fabricationDB.find(r => r.category === category && r.spec === spec);
   }, [category, spec, fabricationDB]);
 
-  const unitPrice = selectedRow ? Number(selectedRow.price) : 0;
-  const subtotal = Math.round(unitPrice * Number(qty || 0));
+  const unit = selectedRow?.unit || "";
+  const price = selectedRow ? Number(selectedRow.price) : 0;
+  const subtotal = Math.round(price * Number(qty || 0));
 
-  /* ====== 新增明細 ====== */
+
+  /****************************************************
+   * 新增明細
+   ****************************************************/
   function addToList() {
     if (!category || !spec) {
       alert("請選擇分類與項目");
@@ -975,8 +965,9 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
       type: "製作成本",
       category,
       spec,
+      unit,
       qty: Number(qty),
-      price: unitPrice,
+      price,
       subtotal
     };
 
@@ -989,83 +980,158 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
     setQty("");
   }
 
-  /* ====== 製作成本明細 ====== */
+
+  /****************************************************
+   * 刪除：依 type 對應真實 index
+   ****************************************************/
+  function deleteFab(idx) {
+    const items = projectData.allItems.filter(i => i.type === "製作成本");
+    const target = items[idx];
+    const realIndex = projectData.allItems.indexOf(target);
+
+    if (realIndex < 0) return;
+
+    const updated = [...projectData.allItems];
+    updated.splice(realIndex, 1);
+
+    setProjectData({ ...projectData, allItems: updated });
+  }
+
+
+  /****************************************************
+   * Inline 編輯
+   ****************************************************/
+  const [editIndex, setEditIndex] = React.useState(null);
+  const [editData, setEditData] = React.useState({});
+
+  function startEdit(idx) {
+    const items = projectData.allItems.filter(i => i.type === "製作成本");
+    const item = items[idx];
+
+    const itemSpecs = fabricationDB
+      .filter(r => r.category === item.category)
+      .map(r => r.spec);
+
+    setEditData({
+      ...item,
+      specs: itemSpecs
+    });
+    setEditIndex(idx);
+  }
+
+  function cancelEdit() {
+    setEditIndex(null);
+    setEditData({});
+  }
+
+  function saveEdit(idx) {
+    const items = projectData.allItems.filter(i => i.type === "製作成本");
+    const original = items[idx];
+    const realIndex = projectData.allItems.indexOf(original);
+
+    const dbRow = fabricationDB.find(
+      r => r.category === editData.category && r.spec === editData.spec
+    );
+
+    const price = Number(dbRow.price);
+    const subtotal = Math.round(price * Number(editData.qty));
+
+    const newItem = {
+      ...editData,
+      unit: dbRow.unit,
+      price,
+      subtotal
+    };
+
+    const updated = [...projectData.allItems];
+    updated[realIndex] = newItem;
+
+    setProjectData({ ...projectData, allItems: updated });
+    cancelEdit();
+  }
+
+
+  /****************************************************
+   * 取得所有「製作成本」明細
+   ****************************************************/
   const items = projectData.allItems.filter(i => i.type === "製作成本");
 
+
+  /****************************************************
+   * 渲染畫面
+   ****************************************************/
   return (
     <div className="p-4 bg-white rounded shadow">
 
       <h2 className="text-xl font-bold mb-4">製作成本</h2>
 
-      {/* 分類 */}
+      {/* --- 新增區塊 --- */}
       <div className="mb-3">
         <label className="font-bold">分類：</label>
         <select
           value={category}
-          onChange={e => { setCategory(e.target.value); setSpec(""); }}
-          className="border px-2 py-1 ml-2 rounded"
+          onChange={e => {
+            setCategory(e.target.value);
+            setSpec("");
+          }}
+          className="border px-2 py-1 rounded ml-2"
         >
           <option value="">請選擇分類</option>
           {categories.map(c => (
-            <option key={c} value={c}>{c}</option>
+            <option key={c}>{c}</option>
           ))}
         </select>
       </div>
 
-      {/* 項目 */}
       {category && (
         <div className="mb-3">
           <label className="font-bold">項目：</label>
           <select
             value={spec}
             onChange={e => setSpec(e.target.value)}
-            className="border px-2 py-1 ml-2 rounded"
+            className="border px-2 py-1 rounded ml-2"
           >
             <option value="">請選擇項目</option>
             {specs.map(s => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s}>{s}</option>
             ))}
           </select>
         </div>
       )}
 
-      {/* 顯示單位 + 單價 */}
       {selectedRow && (
-        <div className="p-3 bg-gray-50 border rounded mb-3">
-          <div>單位：{selectedRow.unit}</div>
-          <div>單價：<b>{unitPrice.toLocaleString()}</b> 元</div>
+        <div className="p-3 bg-gray-50 border rounded mb-4">
+          <div>單位：{unit}</div>
+          <div>單價：<b>{price.toLocaleString()}</b> 元</div>
         </div>
       )}
 
-      {/* 數量 */}
       {selectedRow && (
         <div className="mb-4">
           <label className="font-bold">數量：</label>
           <input
+            type="number"
             value={qty}
             onChange={e => setQty(e.target.value)}
-            type="number"
-            className="border px-2 py-1 ml-2 w-32 rounded"
+            className="border px-2 py-1 rounded ml-2 w-32"
           />
         </div>
       )}
 
-      {/* 小計 */}
       {selectedRow && (
-        <div className="p-3 bg-gray-50 border rounded mb-4">
+        <div className="p-3 border bg-gray-50 rounded mb-4">
           小計：<b>{subtotal.toLocaleString()}</b> 元
         </div>
       )}
 
-      {/* 新增按鈕 */}
       <button
         onClick={addToList}
-        className="px-4 py-2 bg-blue-600 text-white rounded font-bold"
+        className="px-4 py-2 bg-blue-600 text-white font-bold rounded"
       >
         ＋ 加入成本明細表
       </button>
 
-      {/* 明細表 */}
+      {/* --- 明細表 --- */}
       <h3 className="mt-6 mb-2 text-lg font-bold">製作成本明細</h3>
 
       <table className="w-full border mb-4">
@@ -1073,31 +1139,90 @@ function FabricationPage({ fabricationDB, projectData, setProjectData }) {
           <tr>
             <th className="border px-2 py-1">分類</th>
             <th className="border px-2 py-1">項目</th>
+            <th className="border px-2 py-1">單位</th>
             <th className="border px-2 py-1">數量</th>
             <th className="border px-2 py-1">小計</th>
-            <th className="border px-2 py-1">操作</th>
+            <th className="border px-2 py-1 w-32">操作</th>
           </tr>
         </thead>
 
         <tbody>
-          {items.map((i, idx) => (
-            <tr key={idx}>
-              <td className="border px-2 py-1">{i.category}</td>
-              <td className="border px-2 py-1">{i.spec}</td>
-              <td className="border px-2 py-1">{i.qty}</td>
-              <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
-              
-              {/* 刪除按鈕 */}
-              <td className="border px-2 py-1 text-center">
-                <button
-                  className="px-2 py-1 bg-red-600 text-white rounded"
-                  onClick={() => deleteFabrication(idx)}
-                >
-                  刪除
-                </button>
-              </td>
-            </tr>
-          ))}
+          {items.map((i, idx) => {
+            if (idx === editIndex) {
+              return (
+                <tr key={idx} className="bg-yellow-50">
+                  <td className="border px-2 py-1">{i.category}</td>
+
+                  <td className="border px-2 py-1">
+                    <select
+                      value={editData.spec}
+                      onChange={e => setEditData({ ...editData, spec: e.target.value })}
+                      className="border px-1 py-1 rounded w-32"
+                    >
+                      {editData.specs.map(s => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </td>
+
+                  <td className="border px-2 py-1">{i.unit}</td>
+
+                  <td className="border px-2 py-1">
+                    <input
+                      type="number"
+                      value={editData.qty}
+                      onChange={e => setEditData({ ...editData, qty: e.target.value })}
+                      className="border px-1 py-1 w-20"
+                    />
+                  </td>
+
+                  <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+
+                  <td className="border px-2 py-1 text-center">
+                    <button
+                      className="px-2 py-1 bg-green-600 text-white rounded mr-1"
+                      onClick={() => saveEdit(idx)}
+                    >
+                      儲存
+                    </button>
+
+                    <button
+                      className="px-2 py-1 bg-gray-500 text-white rounded"
+                      onClick={cancelEdit}
+                    >
+                      取消
+                    </button>
+                  </td>
+                </tr>
+              );
+            }
+
+            return (
+              <tr key={idx}>
+                <td className="border px-2 py-1">{i.category}</td>
+                <td className="border px-2 py-1">{i.spec}</td>
+                <td className="border px-2 py-1">{i.unit}</td>
+                <td className="border px-2 py-1">{i.qty}</td>
+                <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+
+                <td className="border px-2 py-1 text-center">
+                  <button
+                    onClick={() => startEdit(idx)}
+                    className="px-2 py-1 bg-yellow-600 text-white rounded mr-1"
+                  >
+                    編輯
+                  </button>
+
+                  <button
+                    onClick={() => deleteFab(idx)}
+                    className="px-2 py-1 bg-red-600 text-white rounded"
+                  >
+                    刪除
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 
