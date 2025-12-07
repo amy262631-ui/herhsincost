@@ -1149,7 +1149,6 @@ function SummaryPage({ projectData, setProjectData }) {
 // Summary 圓餅圖
 React.useEffect(() => {
   const ctx = document.getElementById("summaryChart");
-
   if (!ctx) return;
 
   const data = [
@@ -1181,18 +1180,13 @@ React.useEffect(() => {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          position: "bottom",
-          labels: { boxWidth: 12 }
-        },
+        legend: { position: "bottom" },
         datalabels: {
           color: "#fff",
-          font: { weight: "bold", size: 12 },
           formatter: (value, ctx) => {
             const total = ctx.chart._metasets[0].total;
             if (!total) return "";
-            const percent = (value / total) * 100;
-            return percent < 3 ? "" : percent.toFixed(1) + "%";
+            return ((value / total) * 100).toFixed(1) + "%";
           }
         }
       }
