@@ -214,6 +214,10 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
 function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectData }) {
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
+  
+    // 編輯狀態
+  const [editIndex, setEditIndex] = React.useState(null);
+  const [editData, setEditData] = React.useState({});
 
   // 板材輸入
   const [L, setL] = React.useState("");
@@ -407,23 +411,45 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
 
       {/* 材料明細表 */}
       <h3 className="text-lg font-bold mt-6 mb-2">材料成本明細</h3>
-      <table className="w-full border mb-4">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="border px-2 py-1">分類</th>
-            <th className="border px-2 py-1">規格</th>
-            <th className="border px-2 py-1">重量(kg)</th>
-            <th className="border px-2 py-1">小計(元)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {materialItems.map((i, idx) => (
-            <tr key={idx}>
-              <td className="border px-2 py-1">{i.category}</td>
-              <td className="border px-2 py-1">{i.spec}</td>
-              <td className="border px-2 py-1">{i.weight.toFixed(2)}</td>
-              <td className="border px-2 py-1">
-                {i.subtotal.toLocaleString()}
+<table className="table-auto w-full border">
+  <thead>
+    <tr className="bg-gray-100">
+      <th className="border p-2">分類</th>
+      <th className="border p-2">規格</th>
+      <th className="border p-2">重量(kg)</th>
+      <th className="border p-2">小計(元)</th>
+      <th className="border p-2">操作</th>
+    </tr>
+  </thead>
+
+  <tbody>
+    {projectData.allItems
+      .filter(i => i.type === "材料")
+      .map((item, index) => (
+        <tr key={index}>
+          <td className="border p-2">{item.category}</td>
+          <td className="border p-2">{item.spec}</td>
+          <td className="border p-2">{item.weight}</td>
+          <td className="border p-2">{item.subtotal}</td>
+
+          {/* 新增操作按鈕 */}
+          <td className="border p-2 text-center">
+
+            {/* 編輯 */}
+            <button
+              className="px-2 py-1 bg-yellow-500 text-white rounded mr-2"
+              onClick={() => editMaterial(index)}
+            >
+              編輯
+            </button>
+
+            {/* 刪除 */}
+            <button
+              className="px-2 py-1 bg-red-600 text-white rounded"
+              onClick={() => deleteMaterial(index)}
+            >
+              刪除
+            </button>
               </td>
             </tr>
           ))}
@@ -502,8 +528,34 @@ function PurchasePage({ purchaseDB, projectData, setProjectData }) {
     setSpec("");
     setQty("");
   }
+// 刪除市購品（依照市購品清單的 index）
+function deletePurchase(deleteIndex) {
+  // 找出市購品在 allItems 中的實際 index
+  let realIndex = -1;
+  let counter = -1;
 
-  const items = projectData.allItems.filter(i => i.type === "市購品");
+  for (let i = 0; i < projectData.allItems.length; i++) {
+    if (projectData.allItems[i].type === "市購品") {
+      counter++;
+      if (counter === deleteIndex) {
+        realIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (realIndex >= 0) {
+    const newItems = [...projectData.allItems];
+    newItems.splice(realIndex, 1);
+
+    setProjectData({
+      ...projectData,
+      allItems: newItems
+    });
+  }
+}
+
+const items = projectData.allItems.filter(i => i.type === "市購品");
 
   return (
     <div className="p-4 bg-white rounded shadow">
@@ -589,19 +641,24 @@ function PurchasePage({ purchaseDB, projectData, setProjectData }) {
         </thead>
 
         <tbody>
-          {items.map((i, idx) => (
-            <tr key={idx}>
-              <td className="border px-2 py-1">{i.category}</td>
-              <td className="border px-2 py-1">{i.spec}</td>
-              <td className="border px-2 py-1">{i.qty}</td>
-              <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+{items.map((i, idx) => (
+  <tr key={idx}>
+    <td className="border px-2 py-1">{i.category}</td>
+    <td className="border px-2 py-1">{i.spec}</td>
+    <td className="border px-2 py-1">{i.qty}</td>
+    <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+
+    {/* 操作欄 */}
+    <td className="border px-2 py-1 text-center">
+      <button
+        onClick={() => deletePurchase(idx)}
+        className="px-2 py-1 bg-red-600 text-white rounded"
+      >
+        刪除
+      </button>
+    </td>
+  </tr>
+))}
 /****************************************************
  * PART 6 — FabricationPage（製作成本）
  * - 選分類 → 項目
