@@ -203,7 +203,7 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
   );
 }
 /****************************************************
- * PART 4 — MaterialsPage（新版，無模式選單）
+ * PART 4 — MaterialsPage（無編輯，只保留刪除）
  * 自動判斷是否為板材（分類含「板」）
  * 板材公式：
  *   重量 = L(m) × W(m) × unitWeight(kg/m²) × pcs
@@ -211,24 +211,19 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
  *   重量 = 長度(m) × qty × unitWeight(kg/m)
  ****************************************************/
 
-function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectData }) {
+function MaterialsPage({ materialDB, projectData, setProjectData }) {
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
-  
-    // 編輯狀態
-  const [editIndex, setEditIndex] = React.useState(null);
-  const [editData, setEditData] = React.useState({});
 
-  // 板材輸入
+  // 欄位
   const [L, setL] = React.useState("");
   const [W, setW] = React.useState("");
   const [pcs, setPcs] = React.useState("");
 
-  // 型鋼輸入
   const [lenVal, setLenVal] = React.useState("");
   const [qty, setQty] = React.useState("");
 
-  // 取得分類選項
+  // 取得分類
   const categories = React.useMemo(() => {
     const s = new Set();
     materialDB.forEach(r => s.add(r.category));
@@ -242,38 +237,32 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
       .map(r => r.spec);
   }, [category, materialDB]);
 
-  // 選到的資料列
+  // 選到的 DB 資料
   const selectedRow = React.useMemo(() => {
     return materialDB.find(r => r.category === category && r.spec === spec);
   }, [category, spec, materialDB]);
 
-  // 自動判斷是否為板材（包含「板」）
-  const isPlate = React.useMemo(() => {
-    if (!category) return false;
-    return category.includes("板");  // ★ 依你的指定
-  }, [category]);
+  // 自動判斷板材（分類含「板」）
+  const isPlate = category.includes("板");
 
-  // 計算重量 & 小計
+  // 計算重量與小計
   let weight = 0;
   let subtotal = 0;
+
   if (selectedRow) {
     const unitWeight = parseFloat(selectedRow.weight || 0);
     const unitPrice = parseFloat(selectedRow.price || 0);
 
     if (isPlate) {
-      const Lm = parseFloat(L || 0);
-      const Wm = parseFloat(W || 0);
-      const P = parseFloat(pcs || 0);
-      weight = Lm * Wm * unitWeight * P;
+      weight = (parseFloat(L || 0) * parseFloat(W || 0) * unitWeight * parseFloat(pcs || 0));
     } else {
-      const len = parseFloat(lenVal || 0);
-      const q = parseFloat(qty || 0);
-      weight = len * q * unitWeight;
+      weight = (parseFloat(lenVal || 0) * parseFloat(qty || 0) * unitWeight);
     }
 
     subtotal = weight * unitPrice;
   }
 
+  // ➤ 加入明細
   function addToList() {
     if (!category || !spec) {
       alert("請選擇分類與規格");
@@ -295,27 +284,38 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
       category,
       spec,
       isPlate,
-      L, W, pcs,
-      lenVal, qty,
+      L,
+      W,
+      pcs,
+      lenVal,
+      qty,
       weight: parseFloat(weight.toFixed(2)),
-      price: selectedRow ? selectedRow.price : 0,
+      price: selectedRow.price,
       subtotal: Math.round(subtotal)
     };
 
-    // 寫入工程資料
-    const updated = {
+    setProjectData({
       ...projectData,
       allItems: [...projectData.allItems, item]
-    };
+    });
 
-    setProjectData(updated);
-
-    // 清空欄位
     setL(""); setW(""); setPcs("");
     setLenVal(""); setQty("");
   }
 
-  // 材料專屬明細表
+  // ➤ 刪除材料
+  function deleteMaterial(idx) {
+    const newList = projectData.allItems.filter(
+      (i, index) => !(i.type === "材料" && index === idx)
+    );
+
+    setProjectData({
+      ...projectData,
+      allItems: newList
+    });
+  }
+
+  // 材料列表
   const materialItems = projectData.allItems.filter(i => i.type === "材料");
 
   const totalWeight = materialItems.reduce((sum, i) => sum + (i.weight || 0), 0);
@@ -352,16 +352,14 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
         </div>
       )}
 
-      {/* 自動顯示：板材 or 型鋼欄位 */}
+      {/* 自動判斷 */}
       {spec && (
-        <div className="mb-3">
-          <div className="text-blue-600 font-bold">
-            自動判斷模式：{isPlate ? "板材（m × m）" : "型鋼（m × 支數）"}
-          </div>
+        <div className="text-blue-600 font-bold mb-2">
+          自動判斷模式：{isPlate ? "板材（m × m）" : "型鋼（m × 支數）"}
         </div>
       )}
 
-      {/* 板材輸入 */}
+      {/* 板材 */}
       {isPlate && spec && (
         <div className="grid grid-cols-3 gap-4 mb-4">
           <div>
@@ -379,7 +377,7 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
         </div>
       )}
 
-      {/* 型鋼輸入 */}
+      {/* 型鋼 */}
       {!isPlate && spec && (
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
@@ -393,11 +391,11 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
         </div>
       )}
 
-      {/* 結果顯示 */}
+      {/* 計算結果 */}
       {selectedRow && (
         <div className="p-3 bg-gray-50 border rounded mb-4">
           <div>重量：<b>{weight.toFixed(2)}</b> kg</div>
-          <div>小計：<b>{subtotal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}</b> 元</div>
+          <div>小計：<b>{Math.round(subtotal).toLocaleString()}</b> 元</div>
         </div>
       )}
 
@@ -409,31 +407,28 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
         ＋ 加入成本明細表
       </button>
 
-      {/* 材料明細表 */}
+      {/* 明細表 */}
       <h3 className="text-lg font-bold mt-6 mb-2">材料成本明細</h3>
-<table className="table-auto w-full border">
-  <thead>
-    <tr className="bg-gray-100">
-      <th className="border p-2">分類</th>
-      <th className="border p-2">規格</th>
-      <th className="border p-2">重量(kg)</th>
-      <th className="border p-2">小計(元)</th>
-      <th className="border p-2">操作</th>
-    </tr>
-  </thead>
+      <table className="table-auto w-full border">
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="border p-2">分類</th>
+            <th className="border p-2">規格</th>
+            <th className="border p-2">重量(kg)</th>
+            <th className="border p-2">小計(元)</th>
+            <th className="border p-2">操作</th>
+          </tr>
+        </thead>
 
-  <tbody>
-  {projectData.allItems
-    .filter(i => i.type === "材料")
-    .map((i, index) => (
-      <tr key={index}>
-        <td className="border px-2 py-1">{i.category}</td>
-        <td className="border px-2 py-1">{i.spec}</td>
-        <td className="border px-2 py-1">{i.weight}</td>
-        <td className="border px-2 py-1">{i.subtotal.toLocaleString()}</td>
+        <tbody>
+          {materialItems.map((i, index) => (
+            <tr key={index}>
+              <td className="border p-2">{i.category}</td>
+              <td className="border p-2">{i.spec}</td>
+              <td className="border p-2">{i.weight}</td>
+              <td className="border p-2">{i.subtotal.toLocaleString()}</td>
 
-              {/* 只有刪除 */}
-              <td className="border px-2 py-1 text-center">
+              <td className="border p-2 text-center">
                 <button
                   className="px-2 py-1 bg-red-600 text-white rounded"
                   onClick={() => deleteMaterial(index)}
@@ -447,9 +442,10 @@ function MaterialsPage({ materialDB, addItemToProject, projectData, setProjectDa
       </table>
 
       {/* 總重量 */}
-      <div className="font-bold text-right">
+      <div className="font-bold text-right mt-2">
         材料總重量：{totalWeight.toFixed(2)} kg
       </div>
+
     </div>
   );
 }
