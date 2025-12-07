@@ -1239,15 +1239,11 @@ function exportExcel() {
   const mm = String(today.getMonth() + 1).padStart(2, "0");
   const dd = String(today.getDate()).padStart(2, "0");
 
-  const projectName = projectData.projectName || "未命名工程";
+ const projectName = currentProject || "未命名工程";
 
   const fileName = `${yyyy}${mm}${dd}-${projectName}-成本分析.xlsx`;
 
   const rows = [];
-
-  // === 工程名稱 ===
-  rows.push(["工程名稱：", projectName]);
-  rows.push([]);
 
   // =========================
   //   材料成本明細表
