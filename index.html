@@ -1311,77 +1311,91 @@ function SummaryPage({ projectData, currentProject, updateProjectData }) {
         <canvas id="summaryChart"></canvas>
       </div>
 
-{/* 五大成本 + 人工調整並排（垂直模式） */}
+{/* 五大成本與人工調整：合併版 */}
 <div className="bg-white p-4 rounded shadow mb-4">
-  <h3 className="font-bold text-lg mb-2">成本 + 人工調整</h3>
+  <h3 className="font-bold text-lg mb-2">五大成本 + 人工調整</h3>
 
-  {/* 材料 */}
-  <div className="flex items-center gap-4 mb-2">
-    <p className="w-40">材料成本：{materialSum}</p>
-    <input
-      type="number"
-      value={manualAdjustDetail.material}
-      onChange={(e) => updateManualAdjust("material", e.target.value)}
-      className="border p-1 w-40"
-      placeholder="人工調整"
-    />
+  <div className="grid grid-cols-2 gap-3">
+    {/* 材料 */}
+    <div>
+      <p>材料成本：{materialSum}</p>
+    </div>
+    <div>
+      <label>人工調整：
+        <input
+          type="number"
+          value={manualAdjustDetail.material}
+          onChange={e => updateManualAdjust("material", e.target.value)}
+          className="border p-1 w-full"
+        />
+      </label>
+    </div>
+
+    {/* 市購品 */}
+    <div>
+      <p>市購品成本：{purchaseSum}</p>
+    </div>
+    <div>
+      <label>人工調整：
+        <input
+          type="number"
+          value={manualAdjustDetail.purchase}
+          onChange={e => updateManualAdjust("purchase", e.target.value)}
+          className="border p-1 w-full"
+        />
+      </label>
+    </div>
+
+    {/* 製作 */}
+    <div>
+      <p>製作成本：{fabSum}</p>
+    </div>
+    <div>
+      <label>人工調整：
+        <input
+          type="number"
+          value={manualAdjustDetail.fabrication}
+          onChange={e => updateManualAdjust("fabrication", e.target.value)}
+          className="border p-1 w-full"
+        />
+      </label>
+    </div>
+
+    {/* 運輸 */}
+    <div>
+      <p>運輸費用：{transSum}</p>
+    </div>
+    <div>
+      <label>人工調整：
+        <input
+          type="number"
+          value={manualAdjustDetail.transport}
+          onChange={e => updateManualAdjust("transport", e.target.value)}
+          className="border p-1 w-full"
+        />
+      </label>
+    </div>
+
+    {/* 安裝 */}
+    <div>
+      <p>現場安裝成本：{installSum}</p>
+    </div>
+    <div>
+      <label>人工調整：
+        <input
+          type="number"
+          value={manualAdjustDetail.install}
+          onChange={e => updateManualAdjust("install", e.target.value)}
+          className="border p-1 w-full"
+        />
+      </label>
+    </div>
   </div>
 
-  {/* 市購品 */}
-  <div className="flex items-center gap-4 mb-2">
-    <p className="w-40">市購品成本：{purchaseSum}</p>
-    <input
-      type="number"
-      value={manualAdjustDetail.purchase}
-      onChange={(e) => updateManualAdjust("purchase", e.target.value)}
-      className="border p-1 w-40"
-      placeholder="人工調整"
-    />
-  </div>
-
-  {/* 製作 */}
-  <div className="flex items-center gap-4 mb-2">
-    <p className="w-40">製作成本：{fabSum}</p>
-    <input
-      type="number"
-      value={manualAdjustDetail.fabrication}
-      onChange={(e) => updateManualAdjust("fabrication", e.target.value)}
-      className="border p-1 w-40"
-      placeholder="人工調整"
-    />
-  </div>
-
-  {/* 運輸 */}
-  <div className="flex items-center gap-4 mb-2">
-    <p className="w-40">運輸費用：{transSum}</p>
-    <input
-      type="number"
-      value={manualAdjustDetail.transport}
-      onChange={(e) => updateManualAdjust("transport", e.target.value)}
-      className="border p-1 w-40"
-      placeholder="人工調整"
-    />
-  </div>
-
-  {/* 安裝 */}
-  <div className="flex items-center gap-4 mb-2">
-    <p className="w-40">現場安裝成本：{installSum}</p>
-    <input
-      type="number"
-      value={manualAdjustDetail.install}
-      onChange={(e) => updateManualAdjust("install", e.target.value)}
-      className="border p-1 w-full"
-      placeholder="人工調整"
-    />
-  </div>
-
-  {/* 小計 */}
-  <div className="mt-4 border-t pt-3">
-    <p>五大成本合計：<b>{fiveTotal}</b></p>
-    <p>人工調整合計：<b>{manualTotal}</b></p>
-    <p className="text-xl font-bold mt-2">
-      最終成本：<span className="text-red-600">{finalCost}</span>
-    </p>
+  {/* 小計區 */}
+  <div className="mt-4">
+    <p className="font-bold">人工調整小計：{manualTotal}</p>
+    <p className="font-bold text-lg">最終成本：{finalCost}</p>
   </div>
 </div>
 
