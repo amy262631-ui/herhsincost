@@ -19,8 +19,6 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
-  !-- Chart.js OutLabels 插件（新的，請加這一行） -->
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-piechart-outlabels"></script>
   
   <!-- Excel 匯出用 SheetJS -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1182,25 +1180,55 @@ React.useEffect(() => {
       maintainAspectRatio: false,
       plugins: {
         legend: { position: "bottom" },
-
-        outlabels: {
-          text: "%v%",
+        datalabels: {
           color: "#000",
-          stretch: 25,
-          lineWidth: 2,
-          valuePrecision: 1,
-          font: {
-            resizable: true,
-            minSize: 14,
-            maxSize: 20
+          font: { weight: "bold", size: 16 },
+          anchor: "end",
+          align: "end",
+          offset: 20,
+          padding: 6,
+          formatter: (value, context) => {
+            const total = data.reduce((a, b) => a + b, 0);
+            return ((value / total) * 100).toFixed(1) + "%";
           }
         }
       }
     },
-    plugins: [PiechartOutlabels]
-  });
+    plugins: [
+      ChartDataLabels,
+      {
+        id: "leaderLines",
+        afterDraw(chart) {
+          const meta = chart.getDatasetMeta(0);
+          const ctx = chart.ctx;
 
+          ctx.save();
+          ctx.strokeStyle = "#666";
+          ctx.lineWidth = 1;
+
+          meta.data.forEach(arc => {
+            const p = arc.getProps(["x", "y", "startAngle", "endAngle", "outerRadius"], true);
+            const midAngle = (p.startAngle + p.endAngle) / 2;
+
+            const startX = p.x + Math.cos(midAngle) * (p.outerRadius + 5);
+            const startY = p.y + Math.sin(midAngle) * (p.outerRadius + 5);
+
+            const endX = p.x + Math.cos(midAngle) * (p.outerRadius + 25);
+            const endY = p.y + Math.sin(midAngle) * (p.outerRadius + 25);
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+          });
+
+          ctx.restore();
+        }
+      }
+    ]
+  });
 }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
+
 
 /*************** 匯出 Excel ***************/
 function exportExcel() {
