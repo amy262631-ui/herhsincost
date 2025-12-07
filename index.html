@@ -207,6 +207,10 @@ function ProjectManager({ currentProject, setCurrentProject, projects, setProjec
  * 支援板材 + 型鋼模式
  ****************************************************/
 function MaterialsPage({ materialDB, projectData, setProjectData }) {
+    // ★ 加上這段就不會再錯
+  if (!materialDB || !Array.isArray(materialDB)) {
+    return <div className="p-4 text-gray-500">材料資料庫載入中...</div>;
+  }
   const [category, setCategory] = React.useState("");
   const [spec, setSpec] = React.useState("");
   const [length, setLength] = React.useState("");
