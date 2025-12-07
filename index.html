@@ -1231,7 +1231,7 @@ function SummaryPage({ projectData, setProjectData }) {
 
       {/* 圓餅圖 */}
       <div className="flex justify-center my-4">
-        <canvas ref={chartRef} width="260" height="260"></canvas>
+        <canvas ref={chartRef} width="150" height="150"></canvas>
       </div>
 
       {/* 五大成本列表 */}
@@ -1380,23 +1380,63 @@ function App() {
       const parsed = rows
   .slice(1)
   .map(r => r.split(","))
-  .filter(r => r.length >= 3)
+  .filter(r => r.length >= 2)
   .map(r => {
-    // ⭐ 運輸費用用專屬解析
-    if (name === "transport") {
-      return parseTransportRow(r);
+
+    // ① 材料（有重量）
+    if (name === "material") {
+      return {
+        category: r[0],
+        spec: r[1],
+        unit: r[2],
+        weight: Number(r[3] || 0),
+        price: Number(r[4] || 0)
+      };
     }
 
-    // ⭐ 其他四大成本
-    return {
-      category: r[0],
-      spec: r[1],
-      unit: r[2],
-      weight: Number(r[3] || 0),
-      price: Number(r[4] || 0),
-      region: r[5] || ""
-    };
+    // ② 市購品（無重量）
+    if (name === "purchase") {
+      return {
+        category: r[0],
+        spec: r[1],
+        unit: r[2],
+        price: Number(r[3] || 0)
+      };
+    }
+
+    // ③ 製作成本（無重量）
+    if (name === "fabrication") {
+      return {
+        category: r[0],
+        spec: r[1],
+        unit: r[2],
+        price: Number(r[3] || 0)
+      };
+    }
+
+    // ④ 運輸費用（欄位順序不同）
+    if (name === "transport") {
+      return {
+        category: r[0],   // 高空作業車
+        spec: r[1],       // 21M
+        region: r[2],     // 南/北/中
+        price: Number(r[3] || 0),
+        unit: r[4] || "台"
+      };
+    }
+
+    // ⑤ 現場安裝（無重量）
+    if (name === "install") {
+      return {
+        category: r[0],
+        spec: r[1],
+        unit: r[2],
+        price: Number(r[3] || 0)
+      };
+    }
+
   });
+
 
 setter(parsed);
 localStorage.setItem("db_" + name, JSON.stringify(parsed));
