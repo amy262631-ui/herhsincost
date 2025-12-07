@@ -1670,22 +1670,6 @@ React.useEffect(() => {
   return (
     <div className="p-4 max-w-5xl mx-auto">
 
-      {/* 工程名稱輸入 */}
-<div className="mb-4 flex items-center gap-2">
-  <label className="font-bold">工程名稱：</label>
-  <input
-    type="text"
-    className="border px-2 py-1 rounded"
-    placeholder="請輸入工程名稱"
-    value={projectData.projectName || ""}
-    onChange={(e) => {
-      updateProjectData({
-        ...projectData,
-        projectName: e.target.value
-      });
-    }}
-  />
-</div>
 
       {/* 工程管理 */}
       <ProjectManager
