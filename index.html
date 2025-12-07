@@ -1112,15 +1112,11 @@ function InstallPage({ installDB, projectData, setProjectData }) {
 }
 /****************************************************
  * PART 9 — SummaryPage（總表）
- * 五大成本加總 + 人工調整 + 管銷 + 毛利 + 圓餅圖
- * 列印 + 匯出 Excel
  ****************************************************/
-
 function SummaryPage({ projectData, setProjectData }) {
   const chartRef = React.useRef(null);
-  const chartInstance = React.useRef(null);
 
-  // 五大類統計
+  // 五大類金額小計
   const sumByType = type =>
     projectData.allItems
       .filter(i => i.type === type)
@@ -1134,81 +1130,73 @@ function SummaryPage({ projectData, setProjectData }) {
 
   const fiveTotal = materialSum + purchaseSum + fabSum + transSum + installSum;
 
-// 五大類人工調整（5 個欄位）
-const manualAdjustDetail = projectData.manualAdjustDetail || {
-  material: 0,
-  purchase: 0,
-  fabrication: 0,
-  transport: 0,
-  install: 0
-};
+  // 五個人工調整欄位
+  const manualAdjustDetail = projectData.manualAdjustDetail || {
+    material: 0,
+    purchase: 0,
+    fabrication: 0,
+    transport: 0,
+    install: 0
+  };
 
-// 五大人工調整加總
-const manualTotal = Object.values(manualAdjustDetail).reduce((a, b) => a + b, 0);
+  // 五項人工合計
+  const manualTotal = Object.values(manualAdjustDetail).reduce((a, b) => a + b, 0);
 
-// 最終成本 = 五大成本總和 + 五項人工調整總和
-const finalCost = fiveTotal + manualTotal;
+  // 最終成本
+  const finalCost = fiveTotal + manualTotal;
 
-const [adminRate, setAdminRate] = React.useState(15);
-const [profitRate, setProfitRate] = React.useState(35);
+  const [adminRate, setAdminRate] = React.useState(15);
+  const [profitRate, setProfitRate] = React.useState(35);
 
-const adminFee = Math.round(finalCost * (adminRate / 100));
-const suggestPrice = Math.round(
-  (finalCost + adminFee) / (1 - profitRate / 100)
-);
+  const adminFee = Math.round(finalCost * (adminRate / 100));
+  const suggestPrice = Math.round((finalCost + adminFee) / (1 - profitRate / 100));
 
-React.useEffect(() => {
-  const ctx = document.getElementById("summaryChart");
-  if (!ctx) return;
+  /*************** 圓餅圖 ***************/
+  React.useEffect(() => {
+    const ctx = document.getElementById("summaryChart");
+    if (!ctx) return;
 
-  if (window.summaryChart && typeof window.summaryChart.destroy === "function") {
-    window.summaryChart.destroy();
-  }
+    if (window.summaryChart && typeof window.summaryChart.destroy === "function") {
+      window.summaryChart.destroy();
+    }
 
-  const data = [materialSum, purchaseSum, fabSum, transSum, installSum];
-  const labels = ["材料", "市購品", "製作", "運輸", "安裝"];
+    const data = [materialSum, purchaseSum, fabSum, transSum, installSum];
+    const labels = ["材料", "市購品", "製作", "運輸", "安裝"];
 
-  window.summaryChart = new Chart(ctx, {
-    type: "pie",
-    data: {
-      labels,
-      datasets: [
-        {
-          data,
-          backgroundColor: ["#4fa3d1", "#ffcc66", "#66cc99", "#ff6666", "#9999ff"]
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "bottom" },
-        datalabels: {
-          color: "#fff",
-          font: { weight: "bold", size: 12 },
-          formatter: (value, context) => {
-            const meta = context.chart.getDatasetMeta(0);
-            const total = meta.total || data.reduce((a, b) => a + b, 0);
-            const percent = (value / total) * 100;
-            return percent.toFixed(1) + "%";
+    window.summaryChart = new Chart(ctx, {
+      type: "pie",
+      data: {
+        labels,
+        datasets: [
+          {
+            data,
+            backgroundColor: ["#4fa3d1", "#ffcc66", "#66cc99", "#ff6666", "#9999ff"]
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom" },
+          datalabels: {
+            color: "#fff",
+            font: { weight: "bold", size: 12 },
+            formatter: (value, context) => {
+              const meta = context.chart.getDatasetMeta(0);
+              const total = meta.total || data.reduce((a, b) => a + b, 0);
+              return ((value / total) * 100).toFixed(1) + "%";
+            }
           }
         }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}, [materialSum, purchaseSum, fabSum, transSum, installSum]);
+      },
+      plugins: [ChartDataLabels]
+    });
+  }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
-
-  // 匯出 Excel（使用 SheetJS）
+  /*************** 匯出 Excel ***************/
   function exportExcel() {
     const wb = XLSX.utils.book_new();
-
-    function addSheet(name, rows) {
-      const ws = XLSX.utils.json_to_sheet(rows);
-      XLSX.utils.book_append_sheet(wb, ws, name);
-    }
 
     const addRows = type =>
       projectData.allItems
@@ -1221,6 +1209,11 @@ React.useEffect(() => {
           小計: i.subtotal
         }));
 
+    function addSheet(name, rows) {
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    }
+
     addSheet("材料", addRows("材料"));
     addSheet("市購品", addRows("市購品"));
     addSheet("製作成本", addRows("製作成本"));
@@ -1229,7 +1222,7 @@ React.useEffect(() => {
 
     addSheet("總表", [
       { 項目: "五大成本合計", 金額: fiveTotal },
-      { 項目: "人工調整合計", 金額: manualAdjust },
+      { 項目: "人工調整合計", 金額: manualTotal },
       { 項目: "最終成本", 金額: finalCost },
       { 項目: "管銷(%)", 金額: adminRate },
       { 項目: "管銷費", 金額: adminFee },
@@ -1240,16 +1233,18 @@ React.useEffect(() => {
     XLSX.writeFile(wb, "成本彙整表.xlsx");
   }
 
+  /***************** JSX 輸出 *****************/
   return (
     <div className="p-4 bg-white rounded shadow">
+
       <h2 className="text-xl font-bold mb-4">總表 Summary</h2>
 
-{/* 圓餅圖 */}
-<div style={{ width: "40%", margin: "0 auto", height: "260px" }}>
-  <canvas id="summaryChart"></canvas>
-</div>
+      {/* 圓餅圖 */}
+      <div style={{ width: "40%", margin: "0 auto", height: "260px" }}>
+        <canvas id="summaryChart"></canvas>
+      </div>
 
-      {/* 五大成本列表 */}
+      {/* 五大成本表格 */}
       <table className="w-full border mb-6">
         <thead className="bg-gray-100">
           <tr>
@@ -1260,125 +1255,130 @@ React.useEffect(() => {
         </thead>
 
         <tbody>
-  <tr>
-    <td className="border px-2 py-1">材料成本</td>
-    <td className="border px-2 py-1">{materialSum.toLocaleString()}</td>
-    <td className="border px-2 py-1">
-      <input
-        type="number"
-        value={manualAdjustDetail.material}
-        onChange={e =>
-          setProjectData({
-            ...projectData,
-            manualAdjustDetail: {
-              ...manualAdjustDetail,
-              material: Number(e.target.value)
-            }
-          })
-        }
-        className="border p-1 w-24"
-      />
-    </td>
-  </tr>
+          {/* 材料 */}
+          <tr>
+            <td className="border px-2 py-1">材料成本</td>
+            <td className="border px-2 py-1">{materialSum.toLocaleString()}</td>
+            <td className="border px-2 py-1">
+              <input
+                type="number"
+                className="border p-1 w-24"
+                value={manualAdjustDetail.material}
+                onChange={e =>
+                  setProjectData({
+                    ...projectData,
+                    manualAdjustDetail: {
+                      ...manualAdjustDetail,
+                      material: Number(e.target.value)
+                    }
+                  })
+                }
+              />
+            </td>
+          </tr>
 
-  <tr>
-    <td className="border px-2 py-1">市購品</td>
-    <td className="border px-2 py-1">{purchaseSum.toLocaleString()}</td>
-    <td className="border px-2 py-1">
-      <input
-        type="number"
-        value={manualAdjustDetail.purchase}
-        onChange={e =>
-          setProjectData({
-            ...projectData,
-            manualAdjustDetail: {
-              ...manualAdjustDetail,
-              purchase: Number(e.target.value)
-            }
-          })
-        }
-        className="border p-1 w-24"
-      />
-    </td>
-  </tr>
+          {/* 市購品 */}
+          <tr>
+            <td className="border px-2 py-1">市購品</td>
+            <td className="border px-2 py-1">{purchaseSum.toLocaleString()}</td>
+            <td className="border px-2 py-1">
+              <input
+                type="number"
+                className="border p-1 w-24"
+                value={manualAdjustDetail.purchase}
+                onChange={e =>
+                  setProjectData({
+                    ...projectData,
+                    manualAdjustDetail: {
+                      ...manualAdjustDetail,
+                      purchase: Number(e.target.value)
+                    }
+                  })
+                }
+              />
+            </td>
+          </tr>
 
-  <tr>
-    <td className="border px-2 py-1">製作成本</td>
-    <td className="border px-2 py-1">{fabSum.toLocaleString()}</td>
-    <td className="border px-2 py-1">
-      <input
-        type="number"
-        value={manualAdjustDetail.fabrication}
-        onChange={e =>
-          setProjectData({
-            ...projectData,
-            manualAdjustDetail: {
-              ...manualAdjustDetail,
-              fabrication: Number(e.target.value)
-            }
-          })
-        }
-        className="border p-1 w-24"
-      />
-    </td>
-  </tr>
+          {/* 製作 */}
+          <tr>
+            <td className="border px-2 py-1">製作成本</td>
+            <td className="border px-2 py-1">{fabSum.toLocaleString()}</td>
+            <td className="border px-2 py-1">
+              <input
+                type="number"
+                className="border p-1 w-24"
+                value={manualAdjustDetail.fabrication}
+                onChange={e =>
+                  setProjectData({
+                    ...projectData,
+                    manualAdjustDetail: {
+                      ...manualAdjustDetail,
+                      fabrication: Number(e.target.value)
+                    }
+                  })
+                }
+              />
+            </td>
+          </tr>
 
-  <tr>
-    <td className="border px-2 py-1">運輸費用</td>
-    <td className="border px-2 py-1">{transSum.toLocaleString()}</td>
-    <td className="border px-2 py-1">
-      <input
-        type="number"
-        value={manualAdjustDetail.transport}
-        onChange={e =>
-          setProjectData({
-            ...projectData,
-            manualAdjustDetail: {
-              ...manualAdjustDetail,
-              transport: Number(e.target.value)
-            }
-          })
-        }
-        className="border p-1 w-24"
-      />
-    </td>
-  </tr>
+          {/* 運輸 */}
+          <tr>
+            <td className="border px-2 py-1">運輸費用</td>
+            <td className="border px-2 py-1">{transSum.toLocaleString()}</td>
+            <td className="border px-2 py-1">
+              <input
+                type="number"
+                className="border p-1 w-24"
+                value={manualAdjustDetail.transport}
+                onChange={e =>
+                  setProjectData({
+                    ...projectData,
+                    manualAdjustDetail: {
+                      ...manualAdjustDetail,
+                      transport: Number(e.target.value)
+                    }
+                  })
+                }
+              />
+            </td>
+          </tr>
 
-  <tr>
-    <td className="border px-2 py-1">現場安裝</td>
-    <td className="border px-2 py-1">{installSum.toLocaleString()}</td>
-    <td className="border px-2 py-1">
-      <input
-        type="number"
-        value={manualAdjustDetail.install}
-        onChange={e =>
-          setProjectData({
-            ...projectData,
-            manualAdjustDetail: {
-              ...manualAdjustDetail,
-              install: Number(e.target.value)
-            }
-          })
-        }
-        className="border p-1 w-24"
-      />
-    </td>
-  </tr>
-</tbody>
+          {/* 安裝 */}
+          <tr>
+            <td className="border px-2 py-1">現場安裝</td>
+            <td className="border px-2 py-1">{installSum.toLocaleString()}</td>
+            <td className="border px-2 py-1">
+              <input
+                type="number"
+                className="border p-1 w-24"
+                value={manualAdjustDetail.install}
+                onChange={e =>
+                  setProjectData({
+                    ...projectData,
+                    manualAdjustDetail: {
+                      ...manualAdjustDetail,
+                      install: Number(e.target.value)
+                    }
+                  })
+                }
+              />
+            </td>
+          </tr>
+        </tbody>
       </table>
 
-{/* 成本合計 */}
-<div className="text-lg font-bold mb-2">
-  五大成本合計：{fiveTotal.toLocaleString()} 元
-</div>
+      {/* 成本合計 */}
+      <div className="text-lg font-bold mb-2">
+        五大成本合計：{fiveTotal.toLocaleString()} 元
+      </div>
 
-<div className="text-lg font-bold mb-2">
-  人工調整合計：{manualTotal.toLocaleString()} 元
-</div>
+      <div className="text-lg font-bold mb-2">
+        人工調整合計：{manualTotal.toLocaleString()} 元
+      </div>
 
-<div className="text-lg font-bold mb-2">
-  最終成本（含人工調整）：{finalCost.toLocaleString()} 元
-</div>
+      <div className="text-lg font-bold mb-2">
+        最終成本（含人工調整）：{finalCost.toLocaleString()} 元
+      </div>
 
       {/* 管銷 */}
       <div className="mb-4">
@@ -1392,7 +1392,7 @@ React.useEffect(() => {
         <span className="ml-4">管銷費：<b>{adminFee.toLocaleString()}</b> 元</span>
       </div>
 
-      {/* 毛利率 */}
+      {/* 毛利 */}
       <div className="mb-4">
         <label className="font-bold">毛利率(%)：</label>
         <input
