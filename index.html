@@ -1152,47 +1152,85 @@ function SummaryPage({ projectData, setProjectData }) {
   const suggestPrice = Math.round((finalCost + adminFee) / (1 - profitRate / 100));
 
   /*************** 圓餅圖 ***************/
-  React.useEffect(() => {
-    const ctx = document.getElementById("summaryChart");
-    if (!ctx) return;
+React.useEffect(() => {
+  const ctx = document.getElementById("summaryChart");
+  if (!ctx) return;
 
-    if (window.summaryChart && typeof window.summaryChart.destroy === "function") {
-      window.summaryChart.destroy();
-    }
+  if (window.summaryChart && typeof window.summaryChart.destroy === "function") {
+    window.summaryChart.destroy();
+  }
 
-    const data = [materialSum, purchaseSum, fabSum, transSum, installSum];
-    const labels = ["材料", "市購品", "製作", "運輸", "安裝"];
+  const data = [materialSum, purchaseSum, fabSum, transSum, installSum];
+  const labels = ["材料", "市購品", "製作", "運輸", "安裝"];
 
-    window.summaryChart = new Chart(ctx, {
-      type: "pie",
-      data: {
-        labels,
-        datasets: [
-          {
-            data,
-            backgroundColor: ["#4fa3d1", "#ffcc66", "#66cc99", "#ff6666", "#9999ff"]
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: "bottom" },
-          datalabels: {
-            color: "#fff",
-            font: { weight: "bold", size: 12 },
-            formatter: (value, context) => {
-              const meta = context.chart.getDatasetMeta(0);
-              const total = meta.total || data.reduce((a, b) => a + b, 0);
-              return ((value / total) * 100).toFixed(1) + "%";
-            }
+  window.summaryChart = new Chart(ctx, {
+    type: "pie",
+    data: {
+      labels,
+      datasets: [
+        {
+          data,
+          backgroundColor: ["#4fa3d1", "#ffcc66", "#66cc99", "#ff6666", "#9999ff"]
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom" },
+        datalabels: {
+          color: "#000", // 黑色文字
+          font: { weight: "bold", size: 16 },
+          anchor: "end",  // 推到外側
+          align: "end",
+          offset: 12,
+          padding: 6,
+          formatter: (value, context) => {
+            const total = context.chart.getDatasetMeta(0).total;
+            return ((value / total) * 100).toFixed(1) + "%";
           }
         }
-      },
-      plugins: [ChartDataLabels]
-    });
-  }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
+      }
+    },
+    plugins: [
+      ChartDataLabels,
+      {
+        id: "leaderLines",
+        afterDraw(chart) {
+          const meta = chart.getDatasetMeta(0);
+          const ctx = chart.ctx;
+
+          ctx.save();
+          ctx.strokeStyle = "#666";
+          ctx.lineWidth = 1;
+
+          meta.data.forEach(arc => {
+            const { x, y, startAngle, endAngle, outerRadius } = arc.getProps(
+              ["x", "y", "startAngle", "endAngle", "outerRadius"],
+              true
+            );
+
+            const midAngle = (startAngle + endAngle) / 2;
+
+            const startX = x + Math.cos(midAngle) * (outerRadius + 5);
+            const startY = y + Math.sin(midAngle) * (outerRadius + 5);
+
+            const endX = x + Math.cos(midAngle) * (outerRadius + 25);
+            const endY = y + Math.sin(midAngle) * (outerRadius + 25);
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+          });
+
+          ctx.restore();
+        }
+      }
+    ]
+  });
+}, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
   /*************** 匯出 Excel ***************/
   function exportExcel() {
@@ -1240,7 +1278,7 @@ function SummaryPage({ projectData, setProjectData }) {
       <h2 className="text-xl font-bold mb-4">總表 Summary</h2>
 
       {/* 圓餅圖 */}
-      <div style={{ width: "40%", margin: "0 auto", height: "260px" }}>
+      <div style={{ width: "60%", margin: "0 auto", height: "390px" }}>
         <canvas id="summaryChart"></canvas>
       </div>
 
