@@ -19,6 +19,9 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
+  !-- Chart.js OutLabels 插件（新的，請加這一行） -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-piechart-outlabels"></script>
+  
   <!-- Excel 匯出用 SheetJS -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
@@ -1179,66 +1182,24 @@ React.useEffect(() => {
       maintainAspectRatio: false,
       plugins: {
         legend: { position: "bottom" },
-datalabels: {
-  color: "#000",
-  font: { weight: "bold", size: 16 },
 
-  // 強制所有標籤都要顯示
-  clamp: true,
-  clip: false,
-
-  // 往外推，避免彼此擠在一起
-  anchor: "end",
-  align: "end",
-  offset: 20,
-  padding: 6,
-
-  formatter: (value, context) => {
-    const meta = context.chart.getDatasetMeta(0);
-    const total = meta.total;
-    const percent = (value / total) * 100;
-    return percent.toFixed(1) + "%";
+        outlabels: {
+          text: "%v%",
+          color: "#000",
+          stretch: 25,
+          lineWidth: 2,
+          valuePrecision: 1,
+          font: {
+            resizable: true,
+            minSize: 14,
+            maxSize: 20
           }
         }
       }
     },
-    plugins: [
-      ChartDataLabels,
-      {
-        id: "leaderLines",
-        afterDraw(chart) {
-          const meta = chart.getDatasetMeta(0);
-          const ctx = chart.ctx;
-
-          ctx.save();
-          ctx.strokeStyle = "#666";
-          ctx.lineWidth = 1;
-
-          meta.data.forEach(arc => {
-            const { x, y, startAngle, endAngle, outerRadius } = arc.getProps(
-              ["x", "y", "startAngle", "endAngle", "outerRadius"],
-              true
-            );
-
-            const midAngle = (startAngle + endAngle) / 2;
-
-            const startX = x + Math.cos(midAngle) * (outerRadius + 5);
-            const startY = y + Math.sin(midAngle) * (outerRadius + 5);
-
-            const endX = x + Math.cos(midAngle) * (outerRadius + 25);
-            const endY = y + Math.sin(midAngle) * (outerRadius + 25);
-
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(endX, endY);
-            ctx.stroke();
-          });
-
-          ctx.restore();
-        }
-      }
-    ]
+    plugins: [PiechartOutlabels]
   });
+
 }, [materialSum, purchaseSum, fabSum, transSum, installSum]);
 
   /*************** 匯出 Excel ***************/
