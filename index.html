@@ -284,7 +284,7 @@ function MaterialsPage({ materialDB, projectData, setProjectData }) {
       return;
     }
     if (!length || !pcs || (isPlate && !width)) {
-      alert("請完整輸入長度 / (寬度) / 片數");
+      alert("請完整輸入長度 / (寬度) / 數量");
       return;
     }
 
@@ -470,7 +470,7 @@ function MaterialsPage({ materialDB, projectData, setProjectData }) {
           )}
 
           <div className="mb-3">
-            <label className="font-bold">片數：</label>
+            <label className="font-bold">數量：</label>
             <input
               type="number"
               value={pcs}
@@ -503,7 +503,7 @@ function MaterialsPage({ materialDB, projectData, setProjectData }) {
             <th className="border px-2 py-1">規格</th>
             <th className="border px-2 py-1">長度(m)</th>
             <th className="border px-2 py-1">寬度(m)</th>
-            <th className="border px-2 py-1">片數</th>
+            <th className="border px-2 py-1">數量</th>
             <th className="border px-2 py-1">重量(kg)</th>
             <th className="border px-2 py-1">小計(元)</th>
             <th className="border px-2 py-1 w-32">操作</th>
