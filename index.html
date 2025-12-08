@@ -97,28 +97,59 @@ const defaultManualAdjust = {
   install: 0
 };
 
-// 儲存工程資料到 localStorage
+// 🚀 強化版：永不壞掉的 saveProjects()
 function saveProjects(data) {
-  localStorage.setItem("projects_v3", JSON.stringify(data));
-}
-
-// 載入工程資料
-function loadProjects() {
-  const raw = localStorage.getItem("projects_v3");
-  if (!raw) return {};
-
-  const parsed = JSON.parse(raw);
-
-  // 🔧 保證每個工程都包含新版 manualAdjust 物件
-  for (const key in parsed) {
-    if (!parsed[key].manualAdjust || typeof parsed[key].manualAdjust !== "object") {
-      parsed[key].manualAdjust = { ...defaultManualAdjust };
-    }
-    if (!parsed[key].allItems) parsed[key].allItems = [];
+  try {
+    if (!data || typeof data !== "object") return;
+    localStorage.setItem("projects_v3", JSON.stringify(data));
+  } catch (err) {
+    console.error("saveProjects() 寫入錯誤：", err);
   }
-  return parsed;
 }
 
+// 🚀 強化版：永不白屏的 loadProjects()
+function loadProjects() {
+  try {
+    const raw = localStorage.getItem("projects_v3");
+
+    // 第一次使用 → 回傳空物件
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+
+    // 壞掉資料 → 自動重置
+    if (!parsed || typeof parsed !== "object") return {};
+
+    // 修補每一個工程資料
+    for (const key in parsed) {
+      const proj = parsed[key];
+
+      // 工程不存在 或 結構錯誤 → 重建
+      if (!proj || typeof proj !== "object") {
+        parsed[key] = {
+          allItems: [],
+          manualAdjustDetail: { ...defaultManualAdjust }
+        };
+        continue;
+      }
+
+      // allItems 保證為陣列
+      if (!Array.isArray(proj.allItems)) {
+        proj.allItems = [];
+      }
+
+      // 新版人工調整欄位
+      if (!proj.manualAdjustDetail || typeof proj.manualAdjustDetail !== "object") {
+        proj.manualAdjustDetail = { ...defaultManualAdjust };
+      }
+    }
+
+    return parsed;
+  } catch (err) {
+    console.error("loadProjects() 發生錯誤，localStorage 可能損毀：", err);
+    return {}; // 保護 App 不掛掉
+  }
+}
  /****************************************************
  * PART 2 — 多工程管理 ProjectManager（第 2 段）
  ****************************************************/
@@ -2168,9 +2199,13 @@ function SummaryPage({ projectData, currentProject, updateProjectData }) {
  * - 渲染五大成本頁 + SummaryPage
  ****************************************************/
 function App() {
-  const [projects, setProjects] = React.useState(loadProjects());
+  // 載入後保證永遠是正常資料結構
+  const safeProjects = loadProjects();
+
+  const [projects, setProjects] = React.useState(safeProjects);
+
   const [currentProject, setCurrentProject] = React.useState(
-    Object.keys(projects)[0] || ""
+    Object.keys(safeProjects)[0] || ""
   );
 
   // 頁面切換
