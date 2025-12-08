@@ -497,18 +497,18 @@ function MaterialsPage({ materialDB, projectData, setProjectData }) {
 <h3 className="text-lg font-bold mt-6 mb-2">材料成本明細</h3>
 
 <table className="table-auto w-full border mb-4">
-  <thead>
-    <tr className="bg-gray-100">
-      <th className="border px-2 py-1">分類</th>
-      <th className="border px-2 py-1">規格</th>
-      <th className="border px-2 py-1">長度(m)</th>
-      <th className="border px-2 py-1">寬度(m)</th>
-      <th className="border px-2 py-1">數量</th>
-      <th className="border px-2 py-1">重量(kg)</th>
-      <th className="border px-2 py-1">小計(元)</th>
-      <th className="border px-2 py-1 w-32">操作</th>
-    </tr>
-  </thead>
+<thead>
+<tr className="bg-gray-100">
+<th className="border px-2 py-1">分類</th>
+<th className="border px-2 py-1">規格</th>
+<th className="border px-2 py-1">長度(m)</th>
+<th className="border px-2 py-1">寬度(m)</th>
+<th className="border px-2 py-1">數量</th>
+<th className="border px-2 py-1">重量(kg)</th>
+<th className="border px-2 py-1">小計(元)</th>
+<th className="border px-2 py-1 w-32">操作</th>
+</tr>
+</thead>
 
 <tbody>
   {materialItems.map((i, idx) => {
