@@ -2291,6 +2291,84 @@ function SummaryPage({ projectData, currentProject, updateProjectData }) {
   );
 }   
 /****************************************************
+ * PART X — 工程一鍵備份 & 匯入功能
+ ****************************************************/
+function BackupRestore({ projects, setProjects, setCurrentProject }) {
+
+  /** 匯出 JSON **/
+  function exportBackup() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projects, null, 2));
+    const fileName = `工程備份-${new Date().toISOString().slice(0,10)}.json`;
+
+    const a = document.createElement("a");
+    a.href = dataStr;
+    a.download = fileName;
+    a.click();
+  }
+
+  /** 匯入 JSON **/
+  function importBackup(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = function(evt) {
+      try {
+        const imported = JSON.parse(evt.target.result);
+
+        if (typeof imported !== "object") {
+          alert("匯入格式錯誤");
+          return;
+        }
+
+        // merge
+        const merged = { ...projects, ...imported };
+
+        localStorage.setItem("projects_v3", JSON.stringify(merged));
+        setProjects(merged);
+
+        // 若匯入後無現行工程 → 自動選第一個
+        const firstKey = Object.keys(merged)[0] || "";
+        setCurrentProject(firstKey);
+
+        alert("匯入成功！");
+      } catch (err) {
+        alert("匯入失敗：JSON 格式錯誤");
+      }
+    };
+
+    reader.readAsText(file);
+  }
+
+  return (
+    <div className="bg-white p-4 rounded shadow mb-4 print-hidden">
+      <h3 className="font-bold text-lg mb-2">工程備份 / 還原</h3>
+
+      <div className="flex gap-3 items-center">
+        
+        <button
+          onClick={exportBackup}
+          className="bg-purple-600 text-white px-4 py-2 rounded shadow"
+        >
+          📤 匯出全部工程備份
+        </button>
+
+        <label className="bg-blue-600 text-white px-4 py-2 rounded shadow cursor-pointer">
+          📥 匯入工程備份
+          <input
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={importBackup}
+          />
+        </label>
+
+      </div>
+    </div>
+  );
+}    
+/****************************************************
  * PART 10 — App（主控制）
  * - 多工程管理
  * - Google Sheet 同步
@@ -2439,7 +2517,13 @@ React.useEffect(() => {
         projects={projects}
         setProjects={setProjects}
       />
-
+ {/* 新增的備份區塊 */}
+      <BackupRestore
+        projects={projects}
+        setProjects={setProjects}
+        setCurrentProject={setCurrentProject}
+      />
+      
       {/* 分頁功能 */}
       <div className="flex gap-2 mb-4">
         {["材料", "市購品", "製作成本", "運輸費用", "現場安裝", "總表"].map(tab => (
