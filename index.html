@@ -2183,14 +2183,17 @@ function SummaryPage({ projectData, currentProject, updateProjectData }) {
         </button>
 
         {/* 🖨 列印按鈕 */}
-        <button
-          onClick={() => window.print()}
-          className="bg-gray-700 text-white px-4 py-2 rounded shadow"
-        >
-          列印
-        </button>
-
+              <button
+        onClick={() => window.print()}
+        className="bg-gray-700 text-white px-4 py-2 rounded shadow"
+      >
+        列印
+      </button>
       </div>
+
+    </div>
+  );
+}   
 /****************************************************
  * PART 10 — App（主控制）
  * - 多工程管理
